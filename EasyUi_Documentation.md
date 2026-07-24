@@ -102,6 +102,21 @@ section:Toggle({
 })
 ```
 
+## Keybind HUD
+
+Rows in the keybind list are color coded: green while the bound control is active, grey while inactive. Override per control with `hudColor`:
+
+```luau
+section:Toggle({
+	text = "Fly",
+	hudColor = function(active)
+		return active and Color3.fromRGB(150, 200, 255) or Color3.fromRGB(120, 120, 130)
+	end,
+})
+```
+
+`hudColor` accepts a `Color3` or a function receiving the current state.
+
 ## Media
 
 ```luau

@@ -334,6 +334,12 @@ end
 function UI.new(o)
 	o = o or {}
 	local self = setmetatable({}, UI)
+	local env = typeof(getgenv) == "function" and getgenv() or _G
+	local previous = env.__EASYUI_ACTIVE
+	if previous and previous ~= self and type(previous.Close) == "function" then
+		pcall(previous.Close, previous)
+	end
+	env.__EASYUI_ACTIVE = self
 	self._connections = {}
 	self.gui = mountGui()
 	self:_connect(Input.InputChanged, function(i)
@@ -395,18 +401,6 @@ function UI.new(o)
 	stroke(Theme.Stroke, 1, 0.2, win)
 	self.window = win
 
-	new("ImageLabel", {
-		BackgroundTransparency = 1,
-		Image = "rbxassetid://5554236805",
-		ImageColor3 = Color3.new(0, 0, 0),
-		ImageTransparency = 0.45,
-		ScaleType = Enum.ScaleType.Slice,
-		SliceCenter = Rect.new(23, 23, 277, 277),
-		Size = UDim2.new(1, 60, 1, 60),
-		Position = UDim2.new(0, -30, 0, -30),
-		ZIndex = 0,
-		Parent = win,
-	})
 	local scale = new("UIScale", { Scale = 1, Parent = win })
 	self._scale = scale
 
@@ -582,10 +576,12 @@ function UI.new(o)
 	if o.keybindHud then self:SetKeybindHUD(true, type(o.keybindHud) == "table" and o.keybindHud or nil) end
 
 	local function reveal()
+		if not self.visible then
+			return
+		end
 		win.Visible = true
-		scale.Scale = 0.9
-		win.BackgroundTransparency = 1
-		tw(win, E.Pop, { BackgroundTransparency = 0 })
+		win.BackgroundTransparency = 0
+		scale.Scale = 0.7
 		tw(scale, E.Pop, { Scale = 1 })
 	end
 	if o.loader == false then
@@ -735,16 +731,15 @@ function UI:SetVisible(v)
 	end
 	if v then
 		self.window.Visible = true
-		self._scale.Scale = 0.92
-		self.window.BackgroundTransparency = 1
-		tw(self.window, E.Pop, { BackgroundTransparency = 0 })
+		self.window.BackgroundTransparency = 0
+		self._scale.Scale = 0.7
 		tw(self._scale, E.Pop, { Scale = 1 })
 	else
-		tw(self._scale, E.Smooth, { Scale = 0.92 })
-		local t = tw(self.window, E.Smooth, { BackgroundTransparency = 1 })
+		local t = tw(self._scale, E.Smooth, { Scale = 0.7 })
 		t.Completed:Connect(function()
 			if not self.visible then
 				self.window.Visible = false
+				self._scale.Scale = 1
 			end
 		end)
 	end
@@ -762,8 +757,11 @@ function UI:Close()
 	end
 	while next(self._features) do self:Drop(next(self._features)) end
 	self:_cleanup()
-	tw(self._scale, E.Smooth, { Scale = 0.85 })
-	local t = tw(self.window, E.Smooth, { BackgroundTransparency = 1 })
+	local env = typeof(getgenv) == "function" and getgenv() or _G
+	if env.__EASYUI_ACTIVE == self then
+		env.__EASYUI_ACTIVE = nil
+	end
+	local t = tw(self._scale, E.Smooth, { Scale = 0.7 })
 	t.Completed:Connect(function()
 		self.gui:Destroy()
 	end)
@@ -825,7 +823,16 @@ function UI:_refreshBindHUD()
 	for _, widget in ipairs(self.widgets) do
 		if widget.bindKey and widget.activate then
 			count += 1
-			local row = label("[" .. widget.bindKey.Name .. "]  " .. ((widget.opt and widget.opt.text) or widget.kind), 11, Theme.Sub, Theme.Mono, self._bindHudBody)
+			local state = widget.getState and widget.getState()
+			local col = widget.opt and widget.opt.hudColor
+			if type(col) == "function" then
+				local ok, result = pcall(col, state)
+				col = ok and result or nil
+			end
+			if typeof(col) ~= "Color3" then
+				col = state and Theme.Ok or Theme.Sub
+			end
+			local row = label("[" .. widget.bindKey.Name .. "]  " .. ((widget.opt and widget.opt.text) or widget.kind), 11, col, Theme.Mono, self._bindHudBody)
 			row.Size = UDim2.new(1, 0, 0, 16)
 		end
 	end
@@ -1420,10 +1427,21 @@ local function addTab(m, scope, name)
 		Parent = scope._strip,
 	})
 	corner(8, btn)
-	local bs = stroke(Theme.Soft, 1, 1, btn)
 	local tl = label(name, 13, Theme.Sub, Theme.Font, btn)
 	tl.Size = UDim2.fromScale(1, 1)
 	tl.TextXAlignment = Enum.TextXAlignment.Center
+	local mark = new("Frame", {
+		Size = UDim2.new(1, -20, 0, 2),
+		Position = UDim2.new(0, 10, 1, -3),
+		BackgroundColor3 = Theme.Accent,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Parent = btn,
+	})
+	corner(999, mark)
+	m._accentUpdaters[#m._accentUpdaters + 1] = function(c)
+		mark.BackgroundColor3 = c
+	end
 
 	local page = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = scope._holder })
 	local holder = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ClipsDescendants = true, Parent = page })
@@ -1442,20 +1460,18 @@ local function addTab(m, scope, name)
 		scroll.CanvasSize = UDim2.new(0, 0, 0, pl.AbsoluteContentSize.Y + 28)
 	end)
 
-	local tab = { button = btn, stroke = bs, label = tl, page = page, _holder = holder, scroll = scroll, tabs = {}, scope = scope, parent = scope.page and scope or nil }
+	local tab = { button = btn, mark = mark, label = tl, page = page, _holder = holder, scroll = scroll, tabs = {}, scope = scope, parent = scope.page and scope or nil }
 	scope.tabs[#scope.tabs + 1] = tab
 
 	local function activate()
 		scope.activeTab = tab
 		for _, t in ipairs(scope.tabs) do
 			t.page.Visible = false
-			tw(t.button, E.Fast, { BackgroundTransparency = 1 })
-			tw(t.stroke, E.Fast, { Transparency = 1 })
+			tw(t.mark, E.Fast, { BackgroundTransparency = 1 })
 			tw(t.label, E.Fast, { TextColor3 = Theme.Sub })
 		end
 		page.Visible = true
-		tw(btn, E.Fast, { BackgroundTransparency = 0 })
-		tw(bs, E.Fast, { Transparency = 0 })
+		tw(mark, E.Fast, { BackgroundTransparency = 0 })
 		tw(tl, E.Fast, { TextColor3 = Theme.Text })
 		if #tab.tabs > 0 then
 			(tab.activeTab or tab.tabs[1]).activate()
@@ -1831,6 +1847,7 @@ function UI._Sec:Toggle(o)
 	self._m._accentUpdaters[#self._m._accentUpdaters + 1] = function(c) if state then track.BackgroundColor3 = c end end
 
 	local api = {}
+	local m0 = self._m
 	function api:Set(v)
 		state = v and true or false
 		tw(track, E.Smooth, { BackgroundColor3 = state and Theme.Accent or Theme.Control })
@@ -1839,6 +1856,7 @@ function UI._Sec:Toggle(o)
 			AnchorPoint = Vector2.new(state and 1 or 0, 0.5),
 			BackgroundColor3 = state and Theme.Window or Theme.Sub,
 		})
+		m0:_refreshBindHUD()
 		if o.callback then
 			task.spawn(o.callback, state)
 		end
@@ -1858,7 +1876,9 @@ function UI._Sec:Toggle(o)
 	track.MouseButton1Click:Connect(function()
 		api:Set(not state)
 	end)
-	self._m:_reg({ kind = "toggle", opt = o, row = r, activate = function()
+	self._m:_reg({ kind = "toggle", opt = o, row = r, getState = function()
+		return state
+	end, activate = function()
 		api:Set(not state)
 	end })
 	return api
@@ -2199,6 +2219,7 @@ function UI._Sec:Textbox(o)
 		TextColor3 = Theme.Text,
 		Font = Theme.Font,
 		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		ClearTextOnFocus = false,
 		Parent = r,
 	})
