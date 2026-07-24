@@ -342,6 +342,19 @@ local function ensureGuides(ui)
 	return ui._guides
 end
 
+local function viewport()
+	return workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+end
+
+local function clampOnScreen(pos, target, vp)
+	local size = target.AbsoluteSize
+	local left = pos.X.Scale * vp.X + pos.X.Offset
+	local top = pos.Y.Scale * vp.Y + pos.Y.Offset
+	left = math.clamp(left, 40 - size.X, vp.X - 40)
+	top = math.clamp(top, 0, vp.Y - 40)
+	return UDim2.new(pos.X.Scale, left - pos.X.Scale * vp.X, pos.Y.Scale, top - pos.Y.Scale * vp.Y)
+end
+
 local function draggable(ui, handle, target, finished, opts)
 	opts = opts or {}
 	handle.Active = true
@@ -363,31 +376,34 @@ local function draggable(ui, handle, target, finished, opts)
 		local guides = opts.guides and ensureGuides(ui)
 		local remove = ui:Schedule("__drag", function()
 			target.Position = target.Position:Lerp(desired, 0.35)
-		end, nil, 3000)
-		beginDrag(ui, function(m)
-			local d = m - start
-			desired = UDim2.new(base.X.Scale, base.X.Offset + d.X, base.Y.Scale, base.Y.Offset + d.Y)
 			if guides then
-				local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+				local vp = viewport()
 				local size = target.AbsoluteSize
-				local left = desired.X.Scale * vp.X + desired.X.Offset
-				local top = desired.Y.Scale * vp.Y + desired.Y.Offset
-				local snapX = math.abs(left + size.X / 2 - vp.X / 2) < 8
-				local snapY = math.abs(top + size.Y / 2 - vp.Y / 2) < 8
-				if snapX then
-					desired = UDim2.new(desired.X.Scale, vp.X / 2 - size.X / 2 - desired.X.Scale * vp.X, desired.Y.Scale, desired.Y.Offset)
-					left = vp.X / 2 - size.X / 2
-				end
-				if snapY then
-					desired = UDim2.new(desired.X.Scale, desired.X.Offset, desired.Y.Scale, vp.Y / 2 - size.Y / 2 - desired.Y.Scale * vp.Y)
-					top = vp.Y / 2 - size.Y / 2
-				end
-				guides.v.Visible = snapX
-				guides.h.Visible = snapY
+				local left = target.AbsolutePosition.X
+				local top = target.AbsolutePosition.Y
+				guides.v.Visible = math.abs(left + size.X / 2 - vp.X / 2) < 1.5
+				guides.h.Visible = math.abs(top + size.Y / 2 - vp.Y / 2) < 1.5
 				guides.lbl.Visible = true
 				guides.lbl.Text = ("%d, %d"):format(math.floor(left), math.floor(top))
 				guides.lbl.Position = UDim2.fromOffset(math.floor(left), math.floor(top) - 24)
 			end
+		end, nil, 3000)
+		beginDrag(ui, function(m)
+			local d = m - start
+			desired = UDim2.new(base.X.Scale, base.X.Offset + d.X, base.Y.Scale, base.Y.Offset + d.Y)
+			local vp = viewport()
+			if guides then
+				local size = target.AbsoluteSize
+				local left = desired.X.Scale * vp.X + desired.X.Offset
+				local top = desired.Y.Scale * vp.Y + desired.Y.Offset
+				if math.abs(left + size.X / 2 - vp.X / 2) < 8 then
+					desired = UDim2.new(desired.X.Scale, vp.X / 2 - size.X / 2 - desired.X.Scale * vp.X, desired.Y.Scale, desired.Y.Offset)
+				end
+				if math.abs(top + size.Y / 2 - vp.Y / 2) < 8 then
+					desired = UDim2.new(desired.X.Scale, desired.X.Offset, desired.Y.Scale, vp.Y / 2 - size.Y / 2 - desired.Y.Scale * vp.Y)
+				end
+			end
+			desired = clampOnScreen(desired, target, vp)
 		end, function()
 			remove()
 			target.Position = desired
@@ -523,6 +539,18 @@ function UI.new(o)
 	stroke(Theme.Stroke, 1, 0.2, win)
 	self.window = win
 
+	local light = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 1, Parent = win })
+	corner(12, light)
+	new("UIGradient", {
+		Rotation = 128,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.8),
+			NumberSequenceKeypoint.new(0.45, 0.965),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+		Parent = light,
+	})
+
 	local scale = new("UIScale", { Scale = 1, Parent = win })
 	self._scale = scale
 
@@ -643,7 +671,7 @@ function UI.new(o)
 		Parent = wm,
 	})
 	wm.ZIndex = Layers.hud
-	draggable(self, wm, wm, nil, { hud = true })
+	draggable(self, wm, wm, nil, { hud = true, guides = true })
 	local wmDot = new("Frame", {
 		Size = UDim2.fromOffset(7, 7),
 		Position = UDim2.new(0, 12, 0.5, 0),
@@ -998,7 +1026,7 @@ function UI:SetCursor(enabled, o)
 		end)
 		return self._cursorPaint
 	end
-	local cursor = new("Frame", { Size = UDim2.fromOffset(o.size or 12, o.size or 12), AnchorPoint = Vector2.new(0.15, 0.15), Rotation = 45, BackgroundColor3 = o.color or Theme.Accent, BorderSizePixel = 0, ZIndex = 1000, Parent = self.gui })
+	local cursor = new("Frame", { Size = UDim2.fromOffset(o.size or 12, o.size or 12), AnchorPoint = Vector2.new(0, 0), Rotation = 45, BackgroundColor3 = o.color or Theme.Accent, BorderSizePixel = 0, ZIndex = Layers.cursor, Parent = self.gui })
 	corner(2, cursor)
 	stroke(Color3.new(0, 0, 0), 1, 0.25, cursor)
 	self._cursor = cursor
@@ -1059,7 +1087,7 @@ function UI:SetKeybindHUD(enabled, o)
 	local hud = new("Frame", { Size = UDim2.fromOffset(220, 34), Position = o.position or UDim2.new(0, 16, 0, 54), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, ZIndex = Layers.hud, Parent = self.gui })
 	corner(10, hud)
 	stroke(Theme.Stroke, 1, 0.1, hud)
-	draggable(self, hud, hud, nil, { hud = true })
+	draggable(self, hud, hud, nil, { hud = true, guides = true })
 	local title = label(o.title or "Keybinds", 12, Theme.Text, Theme.Bold, hud)
 	title.Position = UDim2.new(0, 10, 0, 4)
 	title.Size = UDim2.new(1, -20, 0, 20)
@@ -2139,11 +2167,15 @@ function UI._Sec:Info(o)
 	local head = new("TextButton", { Text = "", AutoButtonColor = false, Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = holder })
 	local title = label(o.text or "Info", 12, o.color or Theme.Sub, o.font or Theme.Font, head)
 	title.RichText = true
-	title.Size = UDim2.new(1, -20, 1, 0)
-	local arrow = label("▾", 12, Theme.Sub, Theme.Font, head)
-	arrow.Position = UDim2.new(1, -18, 0, 0)
-	arrow.Size = UDim2.fromOffset(16, 22)
+	title.Size = UDim2.new(1, -30, 1, 0)
+	local chip = new("Frame", { Size = UDim2.fromOffset(22, 18), Position = UDim2.new(1, -22, 0.5, 0), AnchorPoint = Vector2.new(1, 0.5), BackgroundColor3 = Theme.Control, BorderSizePixel = 0, Parent = head })
+	corner(6, chip)
+	stroke(Theme.Soft, 1, 0, chip)
+	local arrow = label("⌄", 15, Theme.Text, Theme.Bold, chip)
+	arrow.Size = UDim2.fromScale(1, 1)
 	arrow.TextXAlignment = Enum.TextXAlignment.Center
+	head.MouseEnter:Connect(function() tw(chip, E.Fast, { BackgroundColor3 = Theme.Hover }) end)
+	head.MouseLeave:Connect(function() tw(chip, E.Fast, { BackgroundColor3 = Theme.Control }) end)
 	local body = label(o.description or "", 11, Theme.Muted, o.font or Theme.Font, holder)
 	body.RichText = true
 	body.TextWrapped = true
@@ -2822,7 +2854,7 @@ function UI._Sec:Colorpicker(o)
 	local ds, dh
 	sat.MouseButton1Down:Connect(function()
 		ds = true
-		markLift = 18
+		markLift = 0
 		tw(satMark, E.Snap, { Size = UDim2.fromOffset(16, 16) })
 		local m = Input:GetMouseLocation()
 		sa = math.clamp((m.X - sat.AbsolutePosition.X) / math.max(sat.AbsoluteSize.X, 1), 0, 1)
@@ -2971,7 +3003,7 @@ UI.RegisterHUD("Compass", function(ui, o, _, own)
 	local text = label("N  000°", 12, Theme.Text, Theme.Mono, frame)
 	text.Size = UDim2.fromScale(1, 1)
 	text.TextXAlignment = Enum.TextXAlignment.Center
-	draggable(ui, frame, frame, nil, { hud = true })
+	draggable(ui, frame, frame, nil, { hud = true, guides = true })
 	local enabled = true
 	local remove = own(ui:Every("hud:compass", o.interval or 0.05, function()
 		if not enabled then return end
@@ -3056,6 +3088,12 @@ function UI:Notify(o)
 			holder:Destroy()
 		end)
 	end
+	card.Active = true
+	card.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dismiss()
+		end
+	end)
 	task.delay(dur, dismiss)
 	return { Dismiss = dismiss }
 end
