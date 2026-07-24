@@ -7,9 +7,18 @@ local Http = game:GetService("HttpService")
 
 local LP = Players.LocalPlayer
 
+local function fontOr(name, fallback)
+	for _, item in ipairs(Enum.Font:GetEnumItems()) do
+		if item.Name == name then
+			return item
+		end
+	end
+	return fallback
+end
+
 local Theme = {
-	Font = Enum.Font.GothamMedium,
-	Bold = Enum.Font.GothamBold,
+	Font = fontOr("BuilderSansMedium", Enum.Font.GothamMedium),
+	Bold = fontOr("BuilderSansBold", Enum.Font.GothamBold),
 	Mono = Enum.Font.Code,
 
 	Accent = Color3.fromRGB(236, 236, 240),
@@ -30,6 +39,25 @@ local Theme = {
 	Info = Color3.fromRGB(176, 205, 240),
 }
 local Kind = { ok = Theme.Ok, warn = Theme.Warn, error = Theme.Err, info = Theme.Info }
+
+local TOPMOST = 2147483647
+local Layers = {
+	window = 1,
+	hud = 15,
+	toast = 30,
+	context = 60,
+	picker = 70,
+	loader = 100,
+	cursor = 1000,
+}
+local Visuals = {
+	world = 1,
+	tracers = 2,
+	boxes = 3,
+	fill = 4,
+	text = 5,
+	overlay = 6,
+}
 
 local E = {
 	Smooth = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
@@ -291,17 +319,37 @@ local function dispose(value)
 	end
 end
 
-local function draggable(ui, handle, target, finished)
+local function draggable(ui, handle, target, finished, opts)
+	opts = opts or {}
 	handle.Active = true
 	handle.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			local start = Input:GetMouseLocation()
-			local base = target.Position
-			beginDrag(ui, function(m)
-				local d = m - start
-				target.Position = UDim2.new(base.X.Scale, base.X.Offset + d.X, base.Y.Scale, base.Y.Offset + d.Y)
-			end, finished)
+		local t = i.UserInputType
+		local allowed
+		if opts.hud then
+			allowed = t == Enum.UserInputType.MouseButton3
+				or (ui.visible and (t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch))
+		else
+			allowed = t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch
 		end
+		if not allowed then
+			return
+		end
+		local start = Input:GetMouseLocation()
+		local base = target.Position
+		local desired = base
+		local remove = ui:Schedule("__drag", function()
+			target.Position = target.Position:Lerp(desired, 0.35)
+		end, nil, 3000)
+		beginDrag(ui, function(m)
+			local d = m - start
+			desired = UDim2.new(base.X.Scale, base.X.Offset + d.X, base.Y.Scale, base.Y.Offset + d.Y)
+		end, function()
+			remove()
+			target.Position = desired
+			if finished then
+				finished()
+			end
+		end)
 	end)
 end
 
@@ -311,6 +359,7 @@ local function mountGui()
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		IgnoreGuiInset = true,
+		DisplayOrder = TOPMOST,
 	})
 	local ok = pcall(function()
 		if syn and syn.protect_gui then
@@ -370,7 +419,7 @@ function UI.new(o)
 		end
 	end)
 	self:_connect(Input.InputEnded, function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.MouseButton3 or i.UserInputType == Enum.UserInputType.Touch then
 			local finished = self._dragUp
 			self._dragMove, self._dragUp = nil, nil
 			if finished then
@@ -507,6 +556,25 @@ function UI.new(o)
 	})
 	self._holder = content
 
+	if o.resizable ~= false then
+		local grip = new("TextButton", { Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(18, 18), Position = UDim2.new(1, -2, 1, -2), AnchorPoint = Vector2.new(1, 1), BackgroundTransparency = 1, ZIndex = 6, Parent = win })
+		for _, off in ipairs({ { -3, -3 }, { -8, -3 }, { -3, -8 } }) do
+			local d = new("Frame", { Size = UDim2.fromOffset(3, 3), AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, off[1], 1, off[2]), BackgroundColor3 = Theme.Muted, BorderSizePixel = 0, Parent = grip })
+			corner(999, d)
+		end
+		grip.MouseButton1Down:Connect(function()
+			local start = Input:GetMouseLocation()
+			local baseSize = win.Size
+			beginDrag(self, function(m)
+				local delta = m - start
+				win.Size = UDim2.fromOffset(
+					math.clamp(baseSize.X.Offset + delta.X, o.minWidth or 420, o.maxWidth or 960),
+					math.clamp(baseSize.Y.Offset + delta.Y, o.minHeight or 300, o.maxHeight or 720)
+				)
+			end)
+		end)
+	end
+
 	local wm = new("Frame", {
 		Size = UDim2.fromOffset(200, 28),
 		Position = UDim2.new(0, 16, 0, 16),
@@ -521,7 +589,8 @@ function UI.new(o)
 		Color = ColorSequence.new(Theme.Panel, Theme.Window),
 		Parent = wm,
 	})
-	draggable(self, wm, wm)
+	wm.ZIndex = Layers.hud
+	draggable(self, wm, wm, nil, { hud = true })
 	local wmDot = new("Frame", {
 		Size = UDim2.fromOffset(7, 7),
 		Position = UDim2.new(0, 12, 0.5, 0),
@@ -912,10 +981,10 @@ function UI:SetKeybindHUD(enabled, o)
 		self._bindHud:Destroy()
 		self._bindHud = nil
 	end
-	local hud = new("Frame", { Size = UDim2.fromOffset(220, 34), Position = o.position or UDim2.new(0, 16, 0, 54), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, Parent = self.gui })
+	local hud = new("Frame", { Size = UDim2.fromOffset(220, 34), Position = o.position or UDim2.new(0, 16, 0, 54), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, ZIndex = Layers.hud, Parent = self.gui })
 	corner(10, hud)
 	stroke(Theme.Stroke, 1, 0.1, hud)
-	draggable(self, hud, hud)
+	draggable(self, hud, hud, nil, { hud = true })
 	local title = label(o.title or "Keybinds", 12, Theme.Text, Theme.Bold, hud)
 	title.Position = UDim2.new(0, 10, 0, 4)
 	title.Size = UDim2.new(1, -20, 0, 20)
@@ -1275,6 +1344,12 @@ function UI:GameInfo()
 	return info
 end
 
+function UI:Attach(instance, layer)
+	instance.ZIndex = type(layer) == "number" and layer or (Layers[layer] or Layers.window)
+	instance.Parent = self.gui
+	return instance
+end
+
 function UI:Mount(name, root)
 	assert(type(root) == "table", "Mount root must be a table")
 	self._mounts[tostring(name)] = root
@@ -1454,27 +1529,95 @@ function UI:ConfigTab(o)
 	o = o or {}
 	local tab = self:Tab(o.title or "Configs")
 	local section = tab:Section(o.section or "Profiles")
+	local chosen
+
+	local current = section:Label("Current: none")
 	local name = section:Textbox({ text = "Name", placeholder = "new profile...", default = "" })
-	local profiles = section:Dropdown({ text = "Saved", options = self:ListConfigs() })
-	local function selected()
-		local typed = name:Get()
-		local value = typed ~= "" and typed or profiles:Get()
-		return value ~= nil and value ~= "" and tostring(value) or "default"
+
+	local listCard = new("Frame", { Size = UDim2.new(1, 0, 0, 108), BackgroundColor3 = Theme.Control, BorderSizePixel = 0, Parent = section._card })
+	corner(8, listCard)
+	stroke(Theme.Soft, 1, 0, listCard)
+	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, -8, 1, -8), Position = UDim2.fromOffset(4, 4), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.new(), Parent = listCard })
+	local slist = list(scroll, 3)
+	slist:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		scroll.CanvasSize = UDim2.new(0, 0, 0, slist.AbsoluteContentSize.Y + 4)
+	end)
+
+	local function setCurrent(value)
+		chosen = value
+		current.Text = "Current: " .. (value or "none")
 	end
+	local function target()
+		local typed = name:Get()
+		if typed ~= "" then
+			return typed
+		end
+		return chosen or "default"
+	end
+	local rebuild
+	rebuild = function()
+		for _, c in ipairs(scroll:GetChildren()) do
+			if c:IsA("TextButton") or c:IsA("TextLabel") then
+				c:Destroy()
+			end
+		end
+		local names = self:ListConfigs()
+		if #names == 0 then
+			local empty = label("no saved configs", 12, Theme.Muted, Theme.Font, scroll)
+			empty.Size = UDim2.new(1, 0, 0, 22)
+			empty.TextXAlignment = Enum.TextXAlignment.Center
+			return
+		end
+		for _, cfg in ipairs(names) do
+			local sel = cfg == chosen
+			local row = new("TextButton", { Text = "", AutoButtonColor = false, Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = Theme.Hover, BackgroundTransparency = sel and 0 or 1, BorderSizePixel = 0, Parent = scroll })
+			corner(6, row)
+			local rl = label(cfg, 12, sel and Theme.Text or Theme.Sub, Theme.Font, row)
+			rl.Position = UDim2.new(0, 10, 0, 0)
+			rl.Size = UDim2.new(1, -12, 1, 0)
+			row.MouseEnter:Connect(function()
+				if cfg ~= chosen then
+					tw(row, E.Fast, { BackgroundTransparency = 0.5 })
+				end
+			end)
+			row.MouseLeave:Connect(function()
+				if cfg ~= chosen then
+					tw(row, E.Fast, { BackgroundTransparency = 1 })
+				end
+			end)
+			row.MouseButton1Click:Connect(function()
+				setCurrent(cfg)
+				name:Set("")
+				rebuild()
+			end)
+		end
+	end
+	rebuild()
+
 	section:Button({ text = "Save", callback = function()
-		local profile = selected()
-		self:SaveConfig(profile)
-		profiles:SetItems(self:ListConfigs())
-		profiles:Set(profile)
+		local p = target()
+		self:SaveConfig(p)
+		setCurrent(p)
 		name:Set("")
+		rebuild()
 	end })
-	section:Button({ text = "Load", callback = function() self:LoadConfig(selected()) end })
+	section:Button({ text = "Load", callback = function()
+		local p = target()
+		if self:LoadConfig(p) then
+			setCurrent(p)
+			rebuild()
+		end
+	end })
 	section:Button({ text = "Delete", callback = function()
-		self:DeleteConfig(selected())
+		local p = target()
+		self:DeleteConfig(p)
+		if chosen == p then
+			setCurrent(nil)
+		end
 		name:Set("")
-		profiles:SetItems(self:ListConfigs())
+		rebuild()
 	end })
-	section:Button({ text = "Set Autoload", callback = function() self:SetAutoload(selected()) end })
+	section:Button({ text = "Set Autoload", callback = function() self:SetAutoload(target()) end })
 	return tab
 end
 
@@ -2397,7 +2540,7 @@ function UI._Sec:Textbox(o)
 		Text = stored ~= nil and tostring(stored) or o.default or "",
 		PlaceholderText = o.placeholder or "",
 		PlaceholderColor3 = Theme.Muted,
-		TextColor3 = Theme.Text,
+		TextColor3 = Theme.Sub,
 		Font = Theme.Font,
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -2408,13 +2551,13 @@ function UI._Sec:Textbox(o)
 	local st = stroke(Theme.Soft, 1, 0, box)
 	pad(0, box, 10, 0, 10, 0)
 	if o.text then
-		local tl = label(o.text, 13, Theme.Text, Theme.Font, r)
+		local tl = label(o.text, 13, Theme.Sub, Theme.Font, r)
 		tl.Size = UDim2.new(0.45, -8, 1, 0)
 		box.Size = UDim2.new(0.55, 0, 1, 0)
 		box.Position = UDim2.new(0.45, 0, 0, 0)
 	end
 	box.Focused:Connect(function()
-		tw(st, E.Fast, { Color = Theme.Accent })
+		tw(st, E.Fast, { Color = Theme.Stroke })
 	end)
 	box.FocusLost:Connect(function(enter)
 		tw(st, E.Fast, { Color = Theme.Soft })
@@ -2674,12 +2817,13 @@ end
 
 UI.RegisterHUD("Compass", function(ui, o, _, own)
 	local width = o.width or 260
-	local frame = own(new("Frame", { Size = UDim2.fromOffset(width, 34), Position = o.position or UDim2.new(0.5, -width / 2, 0, 18), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, Parent = ui.gui }))
+	local frame = own(new("Frame", { Size = UDim2.fromOffset(width, 34), Position = o.position or UDim2.new(0.5, -width / 2, 0, 18), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, ZIndex = Layers.hud, Parent = ui.gui }))
 	corner(10, frame)
 	stroke(Theme.Stroke, 1, 0.1, frame)
 	local text = label("N  000°", 12, Theme.Text, Theme.Mono, frame)
 	text.Size = UDim2.fromScale(1, 1)
 	text.TextXAlignment = Enum.TextXAlignment.Center
+	draggable(ui, frame, frame, nil, { hud = true })
 	local enabled = true
 	local remove = own(ui:Every("hud:compass", o.interval or 0.05, function()
 		if not enabled then return end
@@ -2703,6 +2847,7 @@ function UI:Notify(o)
 	if not self._toasts then
 		self._toasts = new("Frame", {
 			Size = UDim2.new(0, 290, 1, -32),
+			ZIndex = Layers.toast,
 			Position = UDim2.new(1, -16, 1, -16),
 			AnchorPoint = Vector2.new(1, 1),
 			BackgroundTransparency = 1,
@@ -2729,7 +2874,7 @@ function UI:Notify(o)
 	corner(10, card)
 	stroke(Theme.Stroke, 1, 0.05, card)
 	pad(10, card, 16, 10, 12, 10)
-	local acc = new("Frame", { Size = UDim2.new(0, 3, 1, -16), Position = UDim2.new(0, 4, 0, 8), BackgroundColor3 = col, BorderSizePixel = 0, Parent = card })
+	local acc = new("Frame", { Size = UDim2.new(0, 3, 1, -16), Position = UDim2.new(0, -8, 0, 8), BackgroundColor3 = col, BorderSizePixel = 0, Parent = card })
 	corner(999, acc)
 	local t = label(o.title or "Notice", 13, Theme.Text, Theme.Bold, card)
 	t.Position = UDim2.new(0, 6, 0, 0)
@@ -2739,7 +2884,7 @@ function UI:Notify(o)
 	msg.Size = UDim2.new(1, -6, 0, lines * 16)
 	msg.TextWrapped = true
 	msg.TextYAlignment = Enum.TextYAlignment.Top
-	local prog = new("Frame", { Size = UDim2.new(1, -12, 0, 2), Position = UDim2.new(0, 6, 1, -6), BackgroundColor3 = col, BackgroundTransparency = 0.3, BorderSizePixel = 0, Parent = card })
+	local prog = new("Frame", { Size = UDim2.new(1, -12, 0, 2), Position = UDim2.new(0, 6, 1, 2), BackgroundColor3 = col, BackgroundTransparency = 0.3, BorderSizePixel = 0, Parent = card })
 	corner(999, prog)
 	tw(card, E.Pop, { Position = UDim2.new(0, 0, 0, 0) })
 	tw(prog, TweenInfo.new(dur, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 0, 2) })
@@ -2992,6 +3137,12 @@ UI.Toolkit = {
 	RegisterHUD = UI.RegisterHUD,
 	RegisterMedia = UI.RegisterMedia,
 	Extend = UI.Extend,
+	Layers = Layers,
+	Visuals = Visuals,
+	Layer = function(name) return Layers[name] end,
+	SetLayer = function(name, z) Layers[name] = z return z end,
+	VisualLayer = function(name) return Visuals[name] end,
+	SetVisualLayer = function(name, z) Visuals[name] = z return z end,
 }
 
 return UI
