@@ -108,10 +108,11 @@ end
 
 local TextSvc = game:GetService("TextService")
 local function textWidth(text, size, font)
+	text = tostring(text):gsub("<[^<>]->", "")
 	local ok, v = pcall(function()
 		return TextSvc:GetTextSize(text, size, font, Vector2.new(4000, 40)).X
 	end)
-	return ok and v or (#tostring(text) * size * 0.5)
+	return ok and v or (#text * size * 0.5)
 end
 
 local function bindHeight(frame, layout, extra)
@@ -178,10 +179,20 @@ local function beginDrag(ui, move, up)
 	ui._dragMove, ui._dragUp = move, up
 end
 
+local function pathKey(container, key)
+	if type(container) == "table" and container[key] == nil then
+		local numeric = tonumber(key)
+		if numeric and container[numeric] ~= nil then
+			return numeric
+		end
+	end
+	return key
+end
+
 local function pathGet(root, path)
 	local value = root
 	for key in tostring(path):gmatch("[^.]+") do
-		value = type(value) == "table" and value[key] or nil
+		value = type(value) == "table" and value[pathKey(value, key)] or nil
 		if value == nil then
 			break
 		end
@@ -195,19 +206,19 @@ local function pathSet(root, path, value)
 		keys[#keys + 1] = key
 	end
 	for i = 1, #keys - 1 do
-		local key = keys[i]
+		local key = pathKey(root, keys[i])
 		if type(root[key]) ~= "table" then
 			root[key] = {}
 		end
 		root = root[key]
 	end
 	if keys[1] then
-		root[keys[#keys]] = value
+		root[pathKey(root, keys[#keys])] = value
 	end
 	return value
 end
 
-local function packValue(value)
+local function packValue(value, seen)
 	local kind = typeof(value)
 	if kind == "Color3" then
 		return { __t = "c", r = value.R, g = value.G, b = value.B }
@@ -217,13 +228,19 @@ local function packValue(value)
 		return { __t = "e", enum = enum, item = item }
 	end
 	if type(value) == "table" then
+		seen = seen or {}
+		if seen[value] then
+			return nil
+		end
+		seen[value] = true
 		local out = {}
 		for k, v in pairs(value) do
-			local packed = packValue(v)
+			local packed = packValue(v, seen)
 			if packed ~= nil then
 				out[k] = packed
 			end
 		end
+		seen[value] = nil
 		return out
 	end
 	if type(value) == "string" or type(value) == "number" or type(value) == "boolean" or value == nil then
@@ -239,7 +256,10 @@ local function unpackValue(value)
 		return Color3.new(value.r or 0, value.g or 0, value.b or 0)
 	end
 	if value.__t == "e" then
-		return Enum[value.enum] and Enum[value.enum][value.item] or nil
+		local ok, item = pcall(function()
+			return Enum[value.enum][value.item]
+		end)
+		return ok and item or nil
 	end
 	if value.__t == "n" then
 		return nil
@@ -303,7 +323,7 @@ local function mountGui()
 		end
 	end)
 	if not ok or not g.Parent then
-		g.Parent = LP and LP:WaitForChild("PlayerGui") or CoreGui
+		g.Parent = LP and (LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)) or CoreGui
 	end
 	return g
 end
@@ -339,7 +359,6 @@ function UI.new(o)
 	if previous and previous ~= self and type(previous.Close) == "function" then
 		pcall(previous.Close, previous)
 	end
-	env.__EASYUI_ACTIVE = self
 	self._connections = {}
 	self.gui = mountGui()
 	self:_connect(Input.InputChanged, function(i)
@@ -365,7 +384,7 @@ function UI.new(o)
 		end
 	end)
 	self.title = o.title or "EasyUI"
-	self.toggleKey = o.toggleKey or Enum.KeyCode.RightShift
+	self.toggleKey = o.toggleKey == false and nil or o.toggleKey or Enum.KeyCode.RightShift
 	self.visible = true
 	self.tabs = {}
 	self._windows = {}
@@ -375,6 +394,7 @@ function UI.new(o)
 	self._jobsDirty = false
 	self._queue = {}
 	self._queued = {}
+	self._batches = {}
 	self._queueSeq = 0
 	self._validators = {}
 	self._accentUpdaters = {}
@@ -518,18 +538,20 @@ function UI.new(o)
 	self._wm, self._wmt = wm, wmt
 	wm.Visible = o.watermark ~= false
 	local gameName = ("Place %d"):format(game.PlaceId)
+	local lastFps = 0
 	local function paint(fps)
 		if not wmt.Parent then
 			return
 		end
-		wmt.Text = self.title .. "  •  " .. gameName .. "  •  " .. fps .. " fps"
+		lastFps = fps or lastFps
+		wmt.Text = self.title .. "  •  " .. gameName .. "  •  " .. lastFps .. " fps"
 		wm.Size = UDim2.fromOffset(textWidth(wmt.Text, 12, Theme.Mono) + 42, 28)
 	end
 	task.spawn(function()
 		local info = self:GameInfo()
 		if info and info.name then
 			gameName = info.name
-			paint(0)
+			paint()
 		end
 	end)
 	do
@@ -548,11 +570,17 @@ function UI.new(o)
 	end
 
 	self:_connect(Input.InputBegan, function(i, gp)
-		if self._captureKey and i.KeyCode ~= Enum.KeyCode.Unknown then
-			local capture = self._captureKey
-			self._captureKey = nil
-			capture(i)
-			return
+		if self._captureKey then
+			if i.KeyCode ~= Enum.KeyCode.Unknown then
+				local capture = self._captureKey
+				self._captureKey = nil
+				capture(i)
+				return
+			elseif i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.MouseButton2 or i.UserInputType == Enum.UserInputType.Touch then
+				local capture = self._captureKey
+				self._captureKey = nil
+				capture(nil)
+			end
 		end
 		if i.KeyCode == self.toggleKey then
 			if not Input:GetFocusedTextBox() then
@@ -565,7 +593,7 @@ function UI.new(o)
 		end
 		if i.KeyCode ~= Enum.KeyCode.Unknown then
 			for _, wd in ipairs(self.widgets) do
-				if wd.bindKey == i.KeyCode and wd.activate then
+				if wd.bindKey == i.KeyCode and wd.activate and (not wd.row or wd.row:IsDescendantOf(self.gui)) then
 					task.spawn(wd.activate)
 				end
 			end
@@ -576,6 +604,7 @@ function UI.new(o)
 	if o.keybindHud then self:SetKeybindHUD(true, type(o.keybindHud) == "table" and o.keybindHud or nil) end
 
 	local function reveal()
+		self._loading = false
 		if not self.visible then
 			return
 		end
@@ -587,9 +616,11 @@ function UI.new(o)
 	if o.loader == false then
 		reveal()
 	else
+		self._loading = true
 		win.Visible = false
 		self:_showLoader(o.loadTime or 1.8, reveal)
 	end
+	env.__EASYUI_ACTIVE = self
 	return self
 end
 
@@ -707,6 +738,8 @@ function UI:_showLoader(dur, done)
 					end
 					if d:IsA("TextLabel") then
 						tw(d, E.Smooth, { TextTransparency = 1 })
+					elseif d:IsA("UIStroke") then
+						tw(d, E.Smooth, { Transparency = 1 })
 					end
 				end
 				out.Completed:Connect(function()
@@ -718,13 +751,22 @@ function UI:_showLoader(dur, done)
 end
 
 function UI:SetVisible(v)
+	v = v and true or false
+	if self._cursorNative ~= nil then
+		if v or self._cursorAlways then
+			Input.MouseIconEnabled = false
+		else
+			Input.MouseIconEnabled = self._cursorNative
+		end
+	end
+	if self._loading or v == self.visible then
+		self.visible = v
+		return
+	end
 	self.visible = v
 	if not v then
 		if self._openPicker then self._openPicker.Visible = false self._openPicker = nil self._openPickerSw = nil end
 		self:_closeContext()
-	end
-	if self._cursorNative ~= nil then
-		Input.MouseIconEnabled = not v and not self._cursorAlways and self._cursorNative or false
 	end
 	for _, window in pairs(self._windows) do
 		window.frame.Visible = v and window.open
@@ -773,10 +815,17 @@ function UI:SetAccent(c)
 	if self._wmDot then
 		self._wmDot.BackgroundColor3 = c
 	end
-	if self._cursor then
+	if self._cursor and not self._cursorCustom then
 		self._cursor.BackgroundColor3 = c
 	end
-	for _, update in ipairs(self._accentUpdaters) do update(c) end
+	for i = #self._accentUpdaters, 1, -1 do
+		local entry = self._accentUpdaters[i]
+		if entry[1] and entry[1]:IsDescendantOf(self.gui) then
+			entry[2](c)
+		else
+			table.remove(self._accentUpdaters, i)
+		end
+	end
 end
 
 function UI:SetCursor(enabled, o)
@@ -789,8 +838,11 @@ function UI:SetCursor(enabled, o)
 		self._cursorEnabled, self._cursorAlways = false, false
 		return
 	end
-	if self._cursorEnabled then return self._cursor or self._cursorPaint end
+	if self._cursorEnabled then
+		self:SetCursor(false)
+	end
 	self._cursorEnabled, self._cursorAlways = true, o.always == true
+	self._cursorCustom = o.color ~= nil
 	self._cursorNative = Input.MouseIconEnabled
 	Input.MouseIconEnabled = false
 	if type(DrawingImmediate) == "table" and type(DrawingImmediate.GetPaint) == "function" and type(DrawingImmediate.FilledTriangle) == "function" then
@@ -806,7 +858,7 @@ function UI:SetCursor(enabled, o)
 	corner(2, cursor)
 	stroke(Color3.new(0, 0, 0), 1, 0.25, cursor)
 	self._cursor = cursor
-	self._cursorRemove = self:Schedule("cursor", function()
+	self._cursorRemove = self:Schedule("__cursor", function()
 		local p = Input:GetMouseLocation()
 		cursor.Position = UDim2.fromOffset(p.X, p.Y)
 		cursor.Visible = self.visible or o.always
@@ -815,13 +867,23 @@ function UI:SetCursor(enabled, o)
 end
 
 function UI:_refreshBindHUD()
-	if not self._bindHud then return end
+	if not self._bindHud or self._bindHudPending then return end
+	self._bindHudPending = true
+	task.defer(function()
+		self._bindHudPending = false
+		if self._bindHud and self._bindHud.Parent then
+			self:_refreshBindHUDNow()
+		end
+	end)
+end
+
+function UI:_refreshBindHUDNow()
 	for _, child in ipairs(self._bindHudBody:GetChildren()) do
 		if child:IsA("TextLabel") then child:Destroy() end
 	end
 	local count = 0
 	for _, widget in ipairs(self.widgets) do
-		if widget.bindKey and widget.activate then
+		if widget.bindKey and widget.activate and (not widget.row or widget.row:IsDescendantOf(self.gui)) then
 			count += 1
 			local state = widget.getState and widget.getState()
 			local col = widget.opt and widget.opt.hudColor
@@ -846,7 +908,10 @@ function UI:SetKeybindHUD(enabled, o)
 		if self._bindHud then self._bindHud:Destroy() self._bindHud = nil end
 		return
 	end
-	if self._bindHud then return self._bindHud end
+	if self._bindHud then
+		self._bindHud:Destroy()
+		self._bindHud = nil
+	end
 	local hud = new("Frame", { Size = UDim2.fromOffset(220, 34), Position = o.position or UDim2.new(0, 16, 0, 54), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, Parent = self.gui })
 	corner(10, hud)
 	stroke(Theme.Stroke, 1, 0.1, hud)
@@ -857,7 +922,7 @@ function UI:SetKeybindHUD(enabled, o)
 	local body = new("Frame", { Size = UDim2.new(1, -20, 1, -28), Position = UDim2.new(0, 10, 0, 26), BackgroundTransparency = 1, Parent = hud })
 	list(body, 2)
 	self._bindHud, self._bindHudBody = hud, body
-	self:_refreshBindHUD()
+	self:_refreshBindHUDNow()
 	return hud
 end
 
@@ -892,16 +957,16 @@ function UI:Schedule(name, callback, fps, priority)
 				local job = pair[2]
 				if self._jobs[pair[1]] == job then
 					job.elapsed += dt
-				end
-				if self._jobs[pair[1]] == job and job.elapsed >= job.step then
-					local elapsed = job.elapsed
-					job.elapsed = job.step > 0 and job.elapsed % job.step or 0
-					local ok, err = pcall(job.fn, elapsed)
-					if not ok then
-						self._jobs[pair[1]] = nil
-						self._jobsDirty = true
-						warn("[EasyUI] " .. tostring(err))
-						if not next(self._jobs) and self._jobConnection then self._jobConnection:Disconnect() self._jobConnection = nil end
+					if job.elapsed >= job.step then
+						local elapsed = job.elapsed
+						job.elapsed = job.step > 0 and job.elapsed % job.step or 0
+						local ok, err = pcall(job.fn, elapsed)
+						if not ok then
+							self._jobs[pair[1]] = nil
+							self._jobsDirty = true
+							warn("[EasyUI] " .. tostring(err))
+							if not next(self._jobs) and self._jobConnection then self._jobConnection:Disconnect() self._jobConnection = nil end
+						end
 					end
 				end
 			end
@@ -923,8 +988,14 @@ end
 
 function UI:Batch(name, items, worker, options)
 	options = options or {}
+	name = tostring(name)
+	local replaced = self._batches[name]
+	if replaced then
+		replaced.running = false
+	end
 	local index, count = 1, #items
 	local handle = { running = true, processed = 0, total = count }
+	self._batches[name] = handle
 	local remove
 	remove = self:Every("batch:" .. tostring(name), options.interval or 0.01, function()
 		if not handle.running then
@@ -1051,12 +1122,16 @@ function UI:Use(name, feature)
 		end
 	end
 	local flag = "features." .. name .. ".enabled"
+	local seeded = self.flags[flag]
 	self.flags[flag] = true
 	self._flagWidgets[flag] = { Set = function(_, enabled)
 		self:SetFeatureEnabled(name, enabled)
 	end, Get = function()
 		return entry.enabled
 	end }
+	if seeded == false then
+		self:SetFeatureEnabled(name, false)
+	end
 	return value
 end
 
@@ -1143,15 +1218,16 @@ function UI:Exec(name, source, options)
 			self:Drop(name)
 			return
 		end
-		handle.status = ok and "running" or "failed"
+		handle.status = ok and "loaded" or "failed"
 		handle.value, handle.error = ok and result or nil, ok and nil or result
 		if not ok then
 			warn("[EasyUI] " .. tostring(result))
 		end
 	end)
+	handle._dequeue = handle.cancel
 	function handle:Cancel()
 		self.cancelled = true
-		self.cancel()
+		self._dequeue()
 		owner:Drop(name)
 		self.status = "cancelled"
 	end
@@ -1175,27 +1251,27 @@ function UI:HUD(name, o)
 end
 
 function UI:GameInfo()
-	if self._gameInfo then
-		return self._gameInfo
+	local info = self._gameInfo
+	if not info then
+		info = {
+			placeId = game.PlaceId,
+			gameId = game.GameId,
+			jobId = game.JobId,
+			name = ("Place %d"):format(game.PlaceId),
+			creator = "",
+			maxPlayers = Players.MaxPlayers,
+		}
+		pcall(function()
+			local data = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+			if data then
+				info.name = data.Name or info.name
+				info.description = data.Description
+				info.creator = data.Creator and data.Creator.Name or ""
+			end
+		end)
+		self._gameInfo = info
 	end
-	local info = {
-		placeId = game.PlaceId,
-		gameId = game.GameId,
-		jobId = game.JobId,
-		name = ("Place %d"):format(game.PlaceId),
-		creator = "",
-		players = #Players:GetPlayers(),
-		maxPlayers = Players.MaxPlayers,
-	}
-	pcall(function()
-		local data = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
-		if data then
-			info.name = data.Name or info.name
-			info.description = data.Description
-			info.creator = data.Creator and data.Creator.Name or ""
-		end
-	end)
-	self._gameInfo = info
+	info.players = #Players:GetPlayers()
 	return info
 end
 
@@ -1208,6 +1284,7 @@ end
 function UI:Unmount(name)
 	local root = self._mounts[tostring(name)]
 	self._mounts[tostring(name)] = nil
+	self._validators[tostring(name)] = nil
 	return root
 end
 
@@ -1223,7 +1300,12 @@ function UI:_write(flag, value)
 	local root, path = tostring(flag):match("^([^.]+)%.(.+)$")
 	if root and self._mounts[root] then
 		local validate = self._validators[root]
-		value = validate and validate(path, value) or value
+		if validate then
+			local ok, validated = pcall(validate, path, value)
+			if ok and validated ~= nil then
+				value = validated
+			end
+		end
 		return pathSet(self._mounts[root], path, value)
 	end
 	self.flags[flag] = value
@@ -1249,8 +1331,8 @@ function UI:Sync(prefix)
 	for flag, api in pairs(self._flagWidgets) do
 		if not lead or flag:sub(1, #lead) == lead then
 			local value = self:_read(flag)
-			if value ~= nil and api.Set then
-				api:Set(value)
+			if value ~= nil and api.Set and (not api.Get or api:Get() ~= value) then
+				pcall(api.Set, api, value)
 			end
 		end
 	end
@@ -1266,8 +1348,8 @@ function UI:ExportConfig()
 	end
 	for _, widget in ipairs(self.widgets) do
 		local bindId = widget.opt and (widget.opt.bindId or widget.opt.flag or widget.opt.id or widget.opt.text)
-		if bindId and widget.activate then
-			binds[bindId] = widget.bindKey and packValue(widget.bindKey) or { __t = "n" }
+		if bindId and (widget.activate or widget.kind == "keybind") then
+			binds[tostring(bindId)] = widget.bindKey and packValue(widget.bindKey) or { __t = "n" }
 		end
 	end
 	return Http:JSONEncode({ version = 1, values = values, binds = binds, mounts = mounts, accent = packValue(Theme.Accent) })
@@ -1278,19 +1360,28 @@ function UI:ImportConfig(json)
 	if not ok or type(data) ~= "table" or data.version ~= 1 or data.values ~= nil and type(data.values) ~= "table" or data.binds ~= nil and type(data.binds) ~= "table" or data.mounts ~= nil and type(data.mounts) ~= "table" then
 		return false
 	end
+	local function mergeInto(target, source)
+		for key, value in pairs(source) do
+			local resolved = pathKey(target, key)
+			if type(value) == "table" and type(target[resolved]) == "table" then
+				mergeInto(target[resolved], value)
+			else
+				target[resolved] = value
+			end
+		end
+	end
 	for name, packed in pairs(data.mounts or {}) do
 		local root, decoded = self._mounts[name], unpackValue(packed)
 		if root and type(decoded) == "table" then
-			for key in pairs(root) do root[key] = nil end
-			for key, value in pairs(decoded) do root[key] = value end
+			mergeInto(root, decoded)
 		end
 	end
 	for flag, packed in pairs(data.values or {}) do
-		self:Set(flag, unpackValue(packed))
+		pcall(self.Set, self, flag, unpackValue(packed))
 	end
 	for _, widget in ipairs(self.widgets) do
 		local bindId = widget.opt and (widget.opt.bindId or widget.opt.flag or widget.opt.id or widget.opt.text)
-		local packed = bindId and data.binds and data.binds[bindId]
+		local packed = bindId and data.binds and data.binds[tostring(bindId)]
 		if packed then
 			local key = unpackValue(packed)
 			if widget.setBind then widget.setBind(key) else widget.bindKey = key end
@@ -1312,7 +1403,7 @@ function UI:SaveConfig(name)
 	if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder("EasyUI") then
 		makefolder("EasyUI")
 	end
-	return pcall(writefile, "EasyUI/" .. safeName(name) .. ".json", self:ExportConfig())
+	return (pcall(writefile, "EasyUI/" .. safeName(name) .. ".json", self:ExportConfig()))
 end
 
 function UI:LoadConfig(name)
@@ -1331,7 +1422,7 @@ function UI:DeleteConfig(name)
 	if type(delfile) ~= "function" then return false end
 	local path = "EasyUI/" .. safeName(name) .. ".json"
 	if type(isfile) == "function" and not isfile(path) then return false end
-	return pcall(delfile, path)
+	return (pcall(delfile, path))
 end
 
 function UI:ListConfigs()
@@ -1350,7 +1441,7 @@ end
 function UI:SetAutoload(name)
 	if type(writefile) ~= "function" then return false end
 	if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder("EasyUI") then makefolder("EasyUI") end
-	return pcall(writefile, "EasyUI/autoload.json", safeName(name))
+	return (pcall(writefile, "EasyUI/autoload.json", safeName(name)))
 end
 
 function UI:LoadAutoload()
@@ -1363,12 +1454,26 @@ function UI:ConfigTab(o)
 	o = o or {}
 	local tab = self:Tab(o.title or "Configs")
 	local section = tab:Section(o.section or "Profiles")
-	local name = section:Textbox({ text = "Name", default = o.default or "default" })
+	local name = section:Textbox({ text = "Name", placeholder = "new profile...", default = "" })
 	local profiles = section:Dropdown({ text = "Saved", options = self:ListConfigs() })
-	local function selected() return name:Get() ~= "" and name:Get() or profiles:Get() or "default" end
-	section:Button({ text = "Save", callback = function() self:SaveConfig(selected()) profiles:SetItems(self:ListConfigs()) end })
+	local function selected()
+		local typed = name:Get()
+		local value = typed ~= "" and typed or profiles:Get()
+		return value ~= nil and value ~= "" and tostring(value) or "default"
+	end
+	section:Button({ text = "Save", callback = function()
+		local profile = selected()
+		self:SaveConfig(profile)
+		profiles:SetItems(self:ListConfigs())
+		profiles:Set(profile)
+		name:Set("")
+	end })
 	section:Button({ text = "Load", callback = function() self:LoadConfig(selected()) end })
-	section:Button({ text = "Delete", callback = function() self:DeleteConfig(selected()) profiles:SetItems(self:ListConfigs()) end })
+	section:Button({ text = "Delete", callback = function()
+		self:DeleteConfig(selected())
+		name:Set("")
+		profiles:SetItems(self:ListConfigs())
+	end })
 	section:Button({ text = "Set Autoload", callback = function() self:SetAutoload(selected()) end })
 	return tab
 end
@@ -1377,6 +1482,28 @@ UI.CFG = UI.ExportConfig
 UI.ICFG = UI.ImportConfig
 UI.SCFG = UI.SaveConfig
 UI.LCFG = UI.LoadConfig
+
+function UI:_pruneWidgets()
+	local removedFlags = {}
+	for i = #self.widgets, 1, -1 do
+		local wd = self.widgets[i]
+		if wd.row and not wd.row:IsDescendantOf(self.gui) then
+			if wd.opt and wd.opt.flag then
+				removedFlags[wd.opt.flag] = true
+			end
+			table.remove(self.widgets, i)
+		end
+	end
+	for _, wd in ipairs(self.widgets) do
+		if wd.opt and wd.opt.flag then
+			removedFlags[wd.opt.flag] = nil
+		end
+	end
+	for flag in pairs(removedFlags) do
+		self._flagWidgets[flag] = nil
+	end
+	self:_refreshBindHUD()
+end
 
 function UI:_reg(wd)
 	if self._ctxHold and wd.row and wd.row:IsDescendantOf(self._ctxHold) then
@@ -1423,9 +1550,10 @@ local function addTab(m, scope, name)
 		BackgroundColor3 = Theme.Control,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		LayoutOrder = #scope.tabs + 1,
+		LayoutOrder = (scope._tabOrder or 0) + 1,
 		Parent = scope._strip,
 	})
+	scope._tabOrder = (scope._tabOrder or 0) + 1
 	corner(8, btn)
 	local tl = label(name, 13, Theme.Sub, Theme.Font, btn)
 	tl.Size = UDim2.fromScale(1, 1)
@@ -1439,9 +1567,9 @@ local function addTab(m, scope, name)
 		Parent = btn,
 	})
 	corner(999, mark)
-	m._accentUpdaters[#m._accentUpdaters + 1] = function(c)
+	m._accentUpdaters[#m._accentUpdaters + 1] = { mark, function(c)
 		mark.BackgroundColor3 = c
-	end
+	end }
 
 	local page = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = scope._holder })
 	local holder = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ClipsDescendants = true, Parent = page })
@@ -1522,6 +1650,10 @@ function UI._Tab:Open()
 		table.insert(chain, 1, entry)
 		entry = entry.parent
 	end
+	local rootScope = chain[1] and chain[1].scope
+	if rootScope and rootScope.frame and rootScope.Open then
+		rootScope:Open()
+	end
 	for _, tab in ipairs(chain) do
 		tab.activate()
 	end
@@ -1564,10 +1696,16 @@ function UI:Window(id, o)
 	if o.close ~= false then
 		local close = new("TextButton", { Text = "×", TextSize = 18, TextColor3 = Theme.Sub, Font = Theme.Font, AutoButtonColor = false, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -34, 0, 5), BackgroundColor3 = Theme.Control, BorderSizePixel = 0, Parent = bar })
 		corner(8, close)
+		hover(close, Theme.Control, Theme.Hover)
 		close.MouseButton1Click:Connect(function() window:Close() end)
 	end
 	if o.flag then
-		self.flags[o.flag] = window:GetState()
+		local stored = self:_read(o.flag)
+		if type(stored) == "table" then
+			window:Set(stored)
+		else
+			self.flags[o.flag] = window:GetState()
+		end
 		self._flagWidgets[o.flag] = window
 	end
 	if frame.Visible and o.animation ~= false then
@@ -1613,8 +1751,12 @@ function UI._Window:Set(state)
 end
 function UI._Window:Destroy()
 	self._m._windows[self.id] = nil
-	if self.flag then self._m._flagWidgets[self.flag] = nil end
+	if self.flag then
+		self._m._flagWidgets[self.flag] = nil
+		self._m.flags[self.flag] = nil
+	end
 	self.frame:Destroy()
+	self._m:_pruneWidgets()
 end
 
 function UI:GetWindow(id) return self._windows[tostring(id)] end
@@ -1634,7 +1776,7 @@ function UI:AttachESP(esp, o)
 	if o.build ~= false and esp.GetDescriptors then
 		local nodes, sections, windows = {}, {}, {}
 		local function node(scope, parent, key)
-			local full = tostring(scope.id or "main") .. "/" .. (parent and parent._key .. "/" or "") .. key
+			local full = (parent and parent._key or tostring(scope.id or "main")) .. "/" .. key
 			if not nodes[full] then
 				nodes[full] = parent and parent:SubTab(key) or scope:Tab(key)
 				nodes[full]._key = full
@@ -1649,7 +1791,7 @@ function UI:AttachESP(esp, o)
 				if not windows[windowName] then
 					local index = 0
 					for _ in pairs(windows) do index += 1 end
-					windows[windowName] = self:Window("ESP " .. windowName, { x = 80 + index * 28, y = 70 + index * 24, width = o.width or 430, height = o.height or 390, header = windowName, open = o.open ~= false })
+					windows[windowName] = self:Window("__esp:" .. windowName, { x = 80 + index * 28, y = 70 + index * 24, width = o.width or 430, height = o.height or 390, header = windowName, open = o.open ~= false })
 				end
 				scope = windows[windowName]
 			end
@@ -1665,7 +1807,9 @@ function UI:AttachESP(esp, o)
 			if method then
 				local before = #self.widgets
 				sections[sectionKey][method](sections[sectionKey], opt)
-				if #self.widgets > before then link.widgets[#link.widgets + 1] = self.widgets[#self.widgets] end
+				for wi = before + 1, #self.widgets do
+					link.widgets[#link.widgets + 1] = self.widgets[wi]
+				end
 				link.flags[#link.flags + 1] = flag
 			end
 		end
@@ -1739,6 +1883,7 @@ function UI._Tab:Destroy()
 			scope.tabs[1].activate()
 		end
 	end
+	self._m:_pruneWidgets()
 end
 
 local function rowFrame(parent, h)
@@ -1818,8 +1963,10 @@ end
 function UI._Sec:Toggle(o)
 	o = o or {}
 	local stored = o.flag and self._m:_read(o.flag)
-	local state = stored ~= nil and stored or (o.default or false)
-	if stored == false then state = false end
+	local state = o.default or false
+	if stored ~= nil then
+		state = stored
+	end
 	local r = rowFrame(self._card, 28)
 	local l = label(o.text or "Toggle", 13, Theme.Text, Theme.Font, r)
 	l.Size = UDim2.new(1, -50, 1, 0)
@@ -1844,12 +1991,16 @@ function UI._Sec:Toggle(o)
 		Parent = track,
 	})
 	corner(999, knob)
-	self._m._accentUpdaters[#self._m._accentUpdaters + 1] = function(c) if state then track.BackgroundColor3 = c end end
+	self._m._accentUpdaters[#self._m._accentUpdaters + 1] = { track, function(c) if state then tw(track, E.Fast, { BackgroundColor3 = c }) end end }
 
 	local api = {}
 	local m0 = self._m
 	function api:Set(v)
-		state = v and true or false
+		v = v and true or false
+		if v == state then
+			return
+		end
+		state = v
 		tw(track, E.Smooth, { BackgroundColor3 = state and Theme.Accent or Theme.Control })
 		tw(knob, E.Snap, {
 			Position = state and UDim2.new(1, -3, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
@@ -1904,6 +2055,7 @@ function UI._Sec:Button(o)
 	local scale = new("UIScale", { Scale = 1, Parent = b })
 	b.MouseButton1Down:Connect(function() tw(scale, E.Fast, { Scale = 0.97 }) end)
 	b.MouseButton1Up:Connect(function() tw(scale, E.Snap, { Scale = 1 }) end)
+	b.MouseLeave:Connect(function() tw(scale, E.Snap, { Scale = 1 }) end)
 	local function fire()
 		ripple(b)
 		if o.callback then
@@ -1947,7 +2099,7 @@ function UI._Sec:Slider(o)
 	})
 	corner(999, track)
 	local fill = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = track })
-	self._m._accentUpdaters[#self._m._accentUpdaters + 1] = function(c) fill.BackgroundColor3 = c end
+	self._m._accentUpdaters[#self._m._accentUpdaters + 1] = { fill, function(c) fill.BackgroundColor3 = c end }
 	corner(999, fill)
 	local knob = new("Frame", {
 		Size = UDim2.fromOffset(12, 12),
@@ -1967,8 +2119,15 @@ function UI._Sec:Slider(o)
 		return tostring(math.floor(v + 0.5))
 	end
 	local api = {}
-	local function apply(v, anim)
-		value = math.clamp(math.floor(v / step + 0.5) * step, min, max)
+	local function apply(v, anim, fire)
+		local snapped = math.clamp(min + math.floor(((tonumber(v) or min) - min) / step + 0.5) * step, min, max)
+		if dec > 0 then
+			snapped = tonumber(string.format("%." .. dec .. "f", snapped)) or snapped
+		end
+		if fire and snapped == value then
+			return
+		end
+		value = snapped
 		local span = max - min
 		local a = span == 0 and 0 or (value - min) / span
 		if anim then
@@ -1982,24 +2141,24 @@ function UI._Sec:Slider(o)
 		if o.flag then
 			self._m:_write(o.flag, value)
 		end
-		if o.callback then
+		if fire and o.callback then
 			task.spawn(o.callback, value)
 		end
 	end
 	function api:Set(v)
-		apply(v, true)
+		apply(v, true, true)
 	end
 	function api:Get()
 		return value
 	end
-	apply(value, false)
+	apply(value, false, false)
 	if o.flag then
 		self._m._flagWidgets[o.flag] = api
 	end
 	local dragging = false
 	local function fromX()
 		local a = math.clamp((Input:GetMouseLocation().X - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-		apply(min + a * (max - min), false)
+		apply(min + a * (max - min), false, true)
 	end
 	track.MouseButton1Down:Connect(function()
 		dragging = true
@@ -2038,7 +2197,7 @@ function UI._Sec:Dropdown(o)
 	})
 	corner(8, head)
 	stroke(Theme.Soft, 1, 0, head)
-	local l = label((o.text and o.text .. ":  " or "") .. tostring(value), 13, Theme.Text, Theme.Font, head)
+	local l = label((o.text and o.text .. ":  " or "") .. tostring(value or ""), 13, Theme.Text, Theme.Font, head)
 	l.Position = UDim2.new(0, 10, 0, 0)
 	l.Size = UDim2.new(1, -34, 1, 0)
 	local arrow = label("▾", 12, Theme.Sub, Theme.Font, head)
@@ -2069,8 +2228,12 @@ function UI._Sec:Dropdown(o)
 		return value
 	end
 	function api:Set(v)
+		if v == value then
+			l.Text = (o.text and o.text .. ":  " or "") .. tostring(value or "")
+			return
+		end
 		value = v
-		l.Text = (o.text and o.text .. ":  " or "") .. tostring(value)
+		l.Text = (o.text and o.text .. ":  " or "") .. tostring(value or "")
 		if o.flag then
 			m:_write(o.flag, v)
 		end
@@ -2129,7 +2292,17 @@ function UI._Sec:Dropdown(o)
 	end)
 	hover(head, Theme.Control, Theme.Hover)
 	function api:SetItems(t)
-		items = t
+		items = t or {}
+		local found = false
+		for _, item in ipairs(items) do
+			if item == value then
+				found = true
+				break
+			end
+		end
+		if not found then
+			api:Set(items[1])
+		end
 		rebuild()
 	end
 	if o.flag then
@@ -2170,20 +2343,28 @@ function UI._Sec:Keybind(o)
 	local api = {}
 	function api:Get() return key end
 	function api:Set(value)
-		key = typeof(value) == "EnumItem" and value or nil
+		value = typeof(value) == "EnumItem" and value or nil
+		local changed = value ~= key
+		key = value
 		bl.Text = key and key.Name or "None"
 		if wd then wd.bindKey = key end
 		if o.flag then self._m:_write(o.flag, key) end
 		self._m:_refreshBindHUD()
+		if changed and o.onChange then
+			task.spawn(o.onChange, key)
+		end
 	end
 	b.MouseButton1Click:Connect(function()
 		bl.Text = "..."
 		tw(b, E.Fast, { BackgroundColor3 = Theme.Hover })
 		self._m._captureKey = function(i)
 			tw(b, E.Fast, { BackgroundColor3 = Theme.Control })
-			if i.KeyCode == Enum.KeyCode.Escape then api:Set(nil) else api:Set(i.KeyCode) end
-			if o.onChange then
-				task.spawn(o.onChange, key)
+			if not i then
+				api:Set(key)
+			elseif i.KeyCode == Enum.KeyCode.Escape then
+				api:Set(nil)
+			else
+				api:Set(i.KeyCode)
 			end
 		end
 	end)
@@ -2226,6 +2407,12 @@ function UI._Sec:Textbox(o)
 	corner(8, box)
 	local st = stroke(Theme.Soft, 1, 0, box)
 	pad(0, box, 10, 0, 10, 0)
+	if o.text then
+		local tl = label(o.text, 13, Theme.Text, Theme.Font, r)
+		tl.Size = UDim2.new(0.45, -8, 1, 0)
+		box.Size = UDim2.new(0.55, 0, 1, 0)
+		box.Position = UDim2.new(0.45, 0, 0, 0)
+	end
 	box.Focused:Connect(function()
 		tw(st, E.Fast, { Color = Theme.Accent })
 	end)
@@ -2241,9 +2428,9 @@ function UI._Sec:Textbox(o)
 	local api = { Get = function()
 		return box.Text
 	end, Set = function(_, t2)
-		box.Text = t2
+		box.Text = tostring(t2 ~= nil and t2 or "")
 		if o.flag then
-			self._m:_write(o.flag, t2)
+			self._m:_write(o.flag, box.Text)
 		end
 	end }
 	if o.flag then
@@ -2279,7 +2466,7 @@ function UI._Sec:Colorpicker(o)
 		BackgroundColor3 = Theme.Card,
 		BorderSizePixel = 0,
 		Visible = false,
-		ZIndex = 40,
+		ZIndex = 70,
 		Parent = self._m.gui,
 	})
 	r.AncestryChanged:Connect(function(_, parent) if not parent and pop.Parent then pop:Destroy() end end)
@@ -2290,17 +2477,17 @@ function UI._Sec:Colorpicker(o)
 		Size = UDim2.new(1, -30, 1, -42),
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
-		ZIndex = 41,
+		ZIndex = 71,
 		Parent = pop,
 	})
 	corner(6, sat)
-	local white = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 42, Parent = sat })
+	local white = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 72, Parent = sat })
 	corner(6, white)
 	new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }), Parent = white })
-	local dark = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ZIndex = 42, Parent = sat })
+	local dark = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ZIndex = 72, Parent = sat })
 	corner(6, dark)
 	new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) }), Parent = dark })
-	local satMark = new("Frame", { Size = UDim2.fromOffset(8, 8), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 43, Parent = sat })
+	local satMark = new("Frame", { Size = UDim2.fromOffset(8, 8), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 73, Parent = sat })
 	corner(999, satMark)
 	stroke(Color3.new(0, 0, 0), 1, 0, satMark)
 	local hueBar = new("ImageButton", {
@@ -2308,7 +2495,7 @@ function UI._Sec:Colorpicker(o)
 		Position = UDim2.new(1, -22, 0, 0),
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
-		ZIndex = 41,
+		ZIndex = 71,
 		Parent = pop,
 	})
 	corner(6, hueBar)
@@ -2325,24 +2512,24 @@ function UI._Sec:Colorpicker(o)
 		}),
 		Parent = hueBar,
 	})
-	local hueMark = new("Frame", { Size = UDim2.new(1, 4, 0, 3), Position = UDim2.new(0, -2, 0, 0), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 43, Parent = hueBar })
+	local hueMark = new("Frame", { Size = UDim2.new(1, 4, 0, 3), Position = UDim2.new(0, -2, 0, 0), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 73, Parent = hueBar })
 	stroke(Color3.new(0, 0, 0), 1, 0, hueMark)
-	local hex = new("TextBox", { Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 1, -30), BackgroundColor3 = Theme.Control, BorderSizePixel = 0, TextColor3 = Theme.Text, PlaceholderText = "#FFFFFF", TextSize = 12, Font = Theme.Mono, ClearTextOnFocus = false, ZIndex = 42, Parent = pop })
+	local hex = new("TextBox", { Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 1, -30), BackgroundColor3 = Theme.Control, BorderSizePixel = 0, TextColor3 = Theme.Text, PlaceholderText = "#FFFFFF", TextSize = 12, Font = Theme.Mono, ClearTextOnFocus = false, ZIndex = 72, Parent = pop })
 	corner(6, hex)
 	pad(0, hex, 8, 0, 8, 0)
 	local hu, sa, va = color:ToHSV()
 	local api = {}
-	local function refresh()
+	local function refresh(fire)
 		color = Color3.fromHSV(hu, sa, va)
 		sw.BackgroundColor3 = color
 		sat.BackgroundColor3 = Color3.fromHSV(hu, 1, 1)
 		satMark.Position = UDim2.fromScale(sa, 1 - va)
-		hueMark.Position = UDim2.new(0, -2, hu, -1)
+		hueMark.Position = UDim2.new(0, -2, hu, -3 * hu)
 		hex.Text = Color.hex(color)
 		if o.flag then
 			self._m:_write(o.flag, color)
 		end
-		if o.callback then
+		if fire ~= false and o.callback then
 			task.spawn(o.callback, color)
 		end
 	end
@@ -2355,8 +2542,8 @@ function UI._Sec:Colorpicker(o)
 		refresh()
 		beginDrag(self._m, function(m)
 			if ds then
-				sa = math.clamp((m.X - sat.AbsolutePosition.X) / sat.AbsoluteSize.X, 0, 1)
-				va = 1 - math.clamp((m.Y - sat.AbsolutePosition.Y) / sat.AbsoluteSize.Y, 0, 1)
+				sa = math.clamp((m.X - sat.AbsolutePosition.X) / math.max(sat.AbsoluteSize.X, 1), 0, 1)
+				va = 1 - math.clamp((m.Y - sat.AbsolutePosition.Y) / math.max(sat.AbsoluteSize.Y, 1), 0, 1)
 				refresh()
 			end
 		end, function()
@@ -2392,12 +2579,16 @@ function UI._Sec:Colorpicker(o)
 	hex.FocusLost:Connect(function()
 		if hex.Text:match("^#?%x%x%x%x%x%x$") then api:Set(Color.fromHex(hex.Text)) else hex.Text = Color.hex(color) end
 	end)
-	refresh()
+	refresh(false)
 	function api:Get()
 		return color
 	end
 	function api:Set(c)
-		hu, sa, va = c:ToHSV()
+		local h2, s2, v2 = c:ToHSV()
+		if s2 > 0 then
+			hu = h2
+		end
+		sa, va = s2, v2
 		refresh()
 	end
 	function api:GetHex() return Color.hex(color) end
@@ -2409,8 +2600,8 @@ function UI._Sec:Colorpicker(o)
 	return api
 end
 
-function UI:RegisterMedia(kind, handler)
-	UI._mediaHandlers[string.lower(tostring(kind))] = handler
+function UI.RegisterMedia(kind, handler)
+	UI._mediaHandlers[(string.lower(tostring(kind)):gsub("^%.+", ""))] = handler
 end
 
 function UI:ImportMedia(source, o)
@@ -2422,6 +2613,7 @@ function UI:ImportMedia(source, o)
 	end
 	local clean = url:lower():match("^[^?#]+") or url:lower()
 	local ext = (clean:match("/([^/]*)$") or ""):match("%.([%w]+)$") or o.type
+	ext = ext and string.lower(ext)
 	ext = ext == "jpeg" and "jpg" or ext
 	local custom = UI._mediaHandlers[ext or ""]
 	if custom then return custom(self, url, o) end
@@ -2437,16 +2629,20 @@ function UI:ImportMedia(source, o)
 		body = game:HttpGet(url)
 	end
 	assert(type(body) == "string" and #body > 0 and #body <= (o.maxBytes or 20 * 1024 * 1024), "Invalid media response")
-	if not ext then
-		ext = body:sub(1, 8) == "\137PNG\r\n\26\n" and "png" or body:sub(1, 3) == "\255\216\255" and "jpg" or body:sub(1, 3) == "ID3" and "mp3" or nil
-	end
+	assert(body:sub(1, 1) ~= "<", "Media download returned a page, not a file")
+	local sniffed = body:sub(1, 8) == "\137PNG\r\n\26\n" and "png" or body:sub(1, 3) == "\255\216\255" and "jpg" or body:sub(1, 3) == "ID3" and "mp3" or body:sub(1, 6) == "GIF87a" and "gif" or body:sub(1, 6) == "GIF89a" and "gif" or body:sub(5, 8) == "ftyp" and "mp4" or nil
+	ext = sniffed or ext
 	assert(ext, "Unknown media format")
 	local folder = "EasyUI/media"
 	if type(makefolder) == "function" then
 		pcall(makefolder, "EasyUI")
 		pcall(makefolder, folder)
 	end
-	local path = folder .. "/" .. safeName(o.name or tostring(math.abs(#url * 7919 + #body))) .. "." .. ext
+	local hash = 0
+	for i = 1, #body, 97 do
+		hash = (hash * 33 + body:byte(i)) % 2147483647
+	end
+	local path = folder .. "/" .. safeName(o.name or ("m" .. hash .. "_" .. #body)) .. "." .. ext
 	writefile(path, body)
 	local asset = getcustomasset(path)
 	local object
@@ -2477,21 +2673,27 @@ function UI._Sec:Media(source, o)
 end
 
 UI.RegisterHUD("Compass", function(ui, o, _, own)
-	local frame = own(new("Frame", { Size = UDim2.fromOffset(o.width or 260, 34), Position = o.position or UDim2.new(0.5, -130, 0, 18), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, Parent = ui.gui }))
+	local width = o.width or 260
+	local frame = own(new("Frame", { Size = UDim2.fromOffset(width, 34), Position = o.position or UDim2.new(0.5, -width / 2, 0, 18), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, Parent = ui.gui }))
 	corner(10, frame)
 	stroke(Theme.Stroke, 1, 0.1, frame)
 	local text = label("N  000°", 12, Theme.Text, Theme.Mono, frame)
 	text.Size = UDim2.fromScale(1, 1)
 	text.TextXAlignment = Enum.TextXAlignment.Center
+	local enabled = true
 	local remove = own(ui:Every("hud:compass", o.interval or 0.05, function()
+		if not enabled then return end
 		local camera = workspace.CurrentCamera
 		if not camera then return end
 		local look = camera.CFrame.LookVector
-		local degrees = (math.deg(math.atan2(-look.X, -look.Z)) + 360) % 360
+		local degrees = (math.deg(math.atan(-look.X, -look.Z)) + 360) % 360
 		local index = math.floor((degrees + 22.5) / 45) % 8 + 1
 		text.Text = ({ "N", "NE", "E", "SE", "S", "SW", "W", "NW" })[index] .. ("  %03d°"):format(math.floor(degrees + 0.5) % 360)
 	end, o.priority or 10))
-	return { SetEnabled = function(_, enabled) frame.Visible = enabled end, Remove = remove }
+	return { SetEnabled = function(_, on)
+		enabled = on and true or false
+		frame.Visible = enabled
+	end, Remove = remove }
 end)
 
 function UI:Notify(o)
@@ -2510,12 +2712,19 @@ function UI:Notify(o)
 		ll.VerticalAlignment = Enum.VerticalAlignment.Bottom
 		ll.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	end
+	local lines = math.max(1, math.ceil(textWidth(o.text or "", 12, Theme.Font) / 250))
+	local height = 40 + lines * 16
+	local holder = new("Frame", {
+		Size = UDim2.new(1, 0, 0, height),
+		BackgroundTransparency = 1,
+		Parent = self._toasts,
+	})
 	local card = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 56),
+		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = Theme.Panel,
 		BorderSizePixel = 0,
 		Position = UDim2.new(1, 320, 0, 0),
-		Parent = self._toasts,
+		Parent = holder,
 	})
 	corner(10, card)
 	stroke(Theme.Stroke, 1, 0.05, card)
@@ -2527,21 +2736,35 @@ function UI:Notify(o)
 	t.Size = UDim2.new(1, -6, 0, 18)
 	local msg = label(o.text or "", 12, Theme.Sub, Theme.Font, card)
 	msg.Position = UDim2.new(0, 6, 0, 18)
-	msg.Size = UDim2.new(1, -6, 0, 16)
+	msg.Size = UDim2.new(1, -6, 0, lines * 16)
 	msg.TextWrapped = true
+	msg.TextYAlignment = Enum.TextYAlignment.Top
 	local prog = new("Frame", { Size = UDim2.new(1, -12, 0, 2), Position = UDim2.new(0, 6, 1, -6), BackgroundColor3 = col, BackgroundTransparency = 0.3, BorderSizePixel = 0, Parent = card })
 	corner(999, prog)
-	tw(card, E.Pop, { Position = UDim2.new(1, 0, 0, 0) })
+	tw(card, E.Pop, { Position = UDim2.new(0, 0, 0, 0) })
 	tw(prog, TweenInfo.new(dur, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 0, 2) })
-	task.delay(dur, function()
-		if not card.Parent then
+	local dismissed = false
+	local function dismiss()
+		if dismissed or not card.Parent then
 			return
+		end
+		dismissed = true
+		for _, d in ipairs(card:GetDescendants()) do
+			if d:IsA("TextLabel") then
+				tw(d, E.Smooth, { TextTransparency = 1 })
+			elseif d:IsA("UIStroke") then
+				tw(d, E.Smooth, { Transparency = 1 })
+			elseif d:IsA("Frame") then
+				tw(d, E.Smooth, { BackgroundTransparency = 1 })
+			end
 		end
 		local out = tw(card, E.Smooth, { Position = UDim2.new(1, 340, 0, 0), BackgroundTransparency = 1 })
 		out.Completed:Connect(function()
-			card:Destroy()
+			holder:Destroy()
 		end)
-	end)
+	end
+	task.delay(dur, dismiss)
+	return { Dismiss = dismiss }
 end
 
 function UI:_ctxInit()
@@ -2582,9 +2805,11 @@ function UI:_ctxInit()
 		if self._openPicker and self._openPicker.Visible and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) and not inside(self._openPicker, Input:GetMouseLocation()) and not inside(self._openPickerSw, Input:GetMouseLocation()) then
 			self._openPicker.Visible = false
 			self._openPicker = nil
+			self._openPickerSw = nil
 		end
 		if pop.Visible and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
-			if not inside(pop, Input:GetMouseLocation()) then
+			local mouse = Input:GetMouseLocation()
+			if not inside(pop, mouse) and not (self._openPicker and inside(self._openPicker, mouse)) then
 				self:_closeContext()
 			end
 		end
@@ -2593,8 +2818,14 @@ end
 
 function UI:_closeContext()
 	if self._ctx then self._ctx.Visible = false end
+	self._captureKey = nil
 	for flag, api in pairs(self._ctxFlags or {}) do
-		if self._flagWidgets[flag] == api.current then self._flagWidgets[flag] = api.previous end
+		if self._flagWidgets[flag] == api.current then
+			self._flagWidgets[flag] = api.previous
+			if api.previous and api.previous.Set then
+				pcall(api.previous.Set, api.previous, self:_read(flag))
+			end
+		end
 	end
 	self._ctxFlags = {}
 end
@@ -2635,7 +2866,9 @@ function UI:_openContext(wd)
 		b.MouseButton1Click:Connect(function()
 			bl.Text = "..."
 			self._captureKey = function(i)
-				if i.KeyCode == Enum.KeyCode.Escape then
+				if not i then
+					bl.Text = wd.bindKey and wd.bindKey.Name or "None"
+				elseif i.KeyCode == Enum.KeyCode.Escape then
 					wd.bindKey = nil
 					bl.Text = "None"
 				elseif i.KeyCode ~= Enum.KeyCode.Unknown then
@@ -2657,13 +2890,21 @@ function UI:_openContext(wd)
 	end
 
 	local m = Input:GetMouseLocation()
-	local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
-	pop.Position = UDim2.fromOffset(math.clamp(m.X + 4, 4, math.max(4, viewport.X - 214)), math.clamp(m.Y + 4, 4, math.max(4, viewport.Y - pop.AbsoluteSize.Y - 4)))
+	local function place()
+		local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+		pop.Position = UDim2.fromOffset(math.clamp(m.X + 4, 4, math.max(4, viewport.X - 214)), math.clamp(m.Y + 4, 4, math.max(4, viewport.Y - pop.AbsoluteSize.Y - 4)))
+	end
+	place()
 	pop.Visible = true
 	pop.BackgroundTransparency = 1
 	self._ctxScale.Scale = 0.9
 	tw(pop, E.Fast, { BackgroundTransparency = 0 })
 	tw(self._ctxScale, E.Pop, { Scale = 1 })
+	task.defer(function()
+		if pop.Visible then
+			place()
+		end
+	end)
 end
 
 function UI:Preview(o)
@@ -2710,7 +2951,8 @@ function UI:Preview(o)
 	part(Vector3.new(0.9, 2, 0.9), Vector3.new(0.5, -2, 0), Color3.fromRGB(60, 60, 66))
 	model.PrimaryPart = torso
 	local box = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(76, 150), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), Parent = holder })
-	stroke(Theme.Accent, 1.5, 0, box)
+	local boxStroke = stroke(Theme.Accent, 1.5, 0, box)
+	self._accentUpdaters[#self._accentUpdaters + 1] = { box, function(c) boxStroke.Color = c end }
 	corner(3, box)
 	local nm = label("Player", 11, Theme.Text, Theme.Bold, holder)
 	nm.Size = UDim2.fromOffset(120, 14)
@@ -2719,12 +2961,14 @@ function UI:Preview(o)
 	local hp = new("Frame", { Size = UDim2.fromOffset(3, 150), BackgroundColor3 = Theme.Ok, BorderSizePixel = 0, AnchorPoint = Vector2.new(1, 0.5), Parent = holder })
 	corner(999, hp)
 	local ang = 0
-	self:_connect(Run.RenderStepped, function(dt)
-		if not vp.Parent then
+	local conn
+	conn = self:_connect(Run.RenderStepped, function(dt)
+		if not vp:IsDescendantOf(self.gui) then
+			conn:Disconnect()
 			return
 		end
 		ang += dt * 0.6
-		model:SetPrimaryPartCFrame(CFrame.new(0, 0, 0) * CFrame.Angles(0, ang, 0))
+		model:PivotTo(CFrame.Angles(0, ang, 0))
 		cam.CFrame = CFrame.new(Vector3.new(0, 0.2, 8), Vector3.new(0, -0.2, 0))
 		local by = box.AbsoluteSize
 		nm.Position = UDim2.fromOffset(box.AbsolutePosition.X - holder.AbsolutePosition.X + by.X / 2, box.AbsolutePosition.Y - holder.AbsolutePosition.Y - 2)

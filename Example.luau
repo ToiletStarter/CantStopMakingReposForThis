@@ -11,6 +11,8 @@ local M = UI.new({
 
 local widgets = M:Tab("Widgets")
 local basics = widgets:SubTab("Basics"):Section("Controls")
+M:Set("demo.strength", 50)
+M:Set("demo.tint", UI.Toolkit.Theme.Accent)
 basics:Toggle({
 	text = "Master Switch",
 	flag = "demo.enabled",
@@ -80,9 +82,15 @@ local tools = M:Window("Tools", {
 local media = tools:Tab("Media"):Section("Import")
 local mediaLoaded = false
 media:Button({ text = "Load YouTube Thumbnail", callback = function()
-	if not mediaLoaded then
-		mediaLoaded = true
+	if mediaLoaded then
+		return
+	end
+	local ok, err = pcall(function()
 		media:Media("https://www.youtube.com/watch?v=dQw4w9WgXcQ", { height = 150 })
+	end)
+	mediaLoaded = ok
+	if not ok then
+		M:Notify({ title = "Media", text = tostring(err), kind = "error" })
 	end
 end })
 tools:Tab("About"):Section("Info"):Label("Split windows nest tabs and subtabs too.")
