@@ -14,7 +14,9 @@ local nested = subtab:SubTab("Enemies")
 local section = nested:Section("Boxes")
 ```
 
-`SubTab` and `Tab` are aliases on navigation nodes, so deeper paths use the same API.
+Top-level tabs render as a horizontal bar under the title bar. Subtabs render as a smaller strip inside their parent's page and only show while that parent is active. `SubTab` and `Tab` are aliases on navigation nodes, so deeper paths use the same API.
+
+Do not mix sections and subtabs on the same tab: once a tab gains subtabs, its direct sections are hidden.
 
 ## Split Windows
 

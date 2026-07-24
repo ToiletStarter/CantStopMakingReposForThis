@@ -467,24 +467,31 @@ function UI.new(o)
 		Parent = win,
 	})
 
-	local side = new("Frame", {
-		Size = UDim2.new(0, 150, 1, -54),
-		Position = UDim2.new(0, 0, 0, 50),
+	local tabBar = new("ScrollingFrame", {
+		Size = UDim2.new(1, -32, 0, 34),
+		Position = UDim2.new(0, 16, 0, 50),
 		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 2,
+		ScrollBarImageColor3 = Theme.Stroke,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		CanvasSize = UDim2.new(),
 		Parent = win,
 	})
-	pad(12, side, 12, 6, 6, 12)
-	list(side, 4)
-	self._side = side
+	local tabBarList = list(tabBar, 6, Enum.FillDirection.Horizontal)
+	tabBarList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		tabBar.CanvasSize = UDim2.new(0, tabBarList.AbsoluteContentSize.X, 0, 0)
+	end)
+	self._strip = tabBar
 
 	local content = new("Frame", {
-		Size = UDim2.new(1, -150, 1, -54),
-		Position = UDim2.new(0, 150, 0, 50),
+		Size = UDim2.new(1, 0, 1, -90),
+		Position = UDim2.new(0, 0, 0, 90),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		Parent = win,
 	})
-	self._content = content
+	self._holder = content
 
 	local wm = new("Frame", {
 		Size = UDim2.fromOffset(200, 28),
@@ -547,9 +554,6 @@ function UI.new(o)
 	end
 
 	self:_connect(Input.InputBegan, function(i, gp)
-		if gp then
-			return
-		end
 		if self._captureKey and i.KeyCode ~= Enum.KeyCode.Unknown then
 			local capture = self._captureKey
 			self._captureKey = nil
@@ -557,7 +561,12 @@ function UI.new(o)
 			return
 		end
 		if i.KeyCode == self.toggleKey then
-			self:SetVisible(not self.visible)
+			if not Input:GetFocusedTextBox() then
+				self:SetVisible(not self.visible)
+			end
+			return
+		end
+		if gp then
 			return
 		end
 		if i.KeyCode ~= Enum.KeyCode.Unknown then
@@ -1380,44 +1389,64 @@ function UI:_reg(wd)
 	return wd
 end
 
-local function addTab(m, scope, name, parent)
-	local depth = parent and ((parent.depth or 0) + 1) or 0
+local function makeStrip(parent, y, inset)
+	local strip = new("ScrollingFrame", {
+		Size = UDim2.new(1, -inset * 2, 0, 30),
+		Position = UDim2.new(0, inset, 0, y),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 2,
+		ScrollBarImageColor3 = Theme.Stroke,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		CanvasSize = UDim2.new(),
+		Parent = parent,
+	})
+	local layout = list(strip, 6, Enum.FillDirection.Horizontal)
+	layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		strip.CanvasSize = UDim2.new(0, layout.AbsoluteContentSize.X, 0, 0)
+	end)
+	return strip
+end
+
+local function addTab(m, scope, name)
 	local btn = new("TextButton", {
 		Text = "",
 		AutoButtonColor = false,
-		Size = UDim2.new(1, 0, 0, 30),
+		Size = UDim2.fromOffset(math.max(58, textWidth(name, 13, Theme.Font) + 26), 26),
 		BackgroundColor3 = Theme.Control,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		LayoutOrder = #scope.tabs + 1,
-		Parent = scope._side,
+		Parent = scope._strip,
 	})
 	corner(8, btn)
 	local bs = stroke(Theme.Soft, 1, 1, btn)
 	local tl = label(name, 13, Theme.Sub, Theme.Font, btn)
-	tl.Position = UDim2.new(0, 12 + depth * 10, 0, 0)
-	tl.Size = UDim2.new(1, -12 - depth * 10, 1, 0)
+	tl.Size = UDim2.fromScale(1, 1)
+	tl.TextXAlignment = Enum.TextXAlignment.Center
 
-	local page = new("ScrollingFrame", {
+	local page = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = scope._holder })
+	local holder = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ClipsDescendants = true, Parent = page })
+	local scroll = new("ScrollingFrame", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 3,
 		ScrollBarImageColor3 = Theme.Stroke,
 		CanvasSize = UDim2.new(),
-		Visible = false,
-		Parent = scope._content,
+		Parent = holder,
 	})
-	pad(14, page, 14, 12, 14, 16)
-	local pl = list(page, 12)
+	pad(14, scroll, 14, 12, 14, 16)
+	local pl = list(scroll, 12)
 	pl:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		page.CanvasSize = UDim2.new(0, 0, 0, pl.AbsoluteContentSize.Y + 28)
+		scroll.CanvasSize = UDim2.new(0, 0, 0, pl.AbsoluteContentSize.Y + 28)
 	end)
 
-	local tab = { button = btn, stroke = bs, page = page, label = tl, depth = depth, parent = parent, scope = scope }
+	local tab = { button = btn, stroke = bs, label = tl, page = page, _holder = holder, scroll = scroll, tabs = {}, scope = scope, parent = scope.page and scope or nil }
 	scope.tabs[#scope.tabs + 1] = tab
 
 	local function activate()
+		scope.activeTab = tab
 		for _, t in ipairs(scope.tabs) do
 			t.page.Visible = false
 			tw(t.button, E.Fast, { BackgroundTransparency = 1 })
@@ -1428,7 +1457,11 @@ local function addTab(m, scope, name, parent)
 		tw(btn, E.Fast, { BackgroundTransparency = 0 })
 		tw(bs, E.Fast, { Transparency = 0 })
 		tw(tl, E.Fast, { TextColor3 = Theme.Text })
+		if #tab.tabs > 0 then
+			(tab.activeTab or tab.tabs[1]).activate()
+		end
 	end
+	tab.activate = activate
 	btn.MouseButton1Click:Connect(activate)
 	btn.MouseEnter:Connect(function()
 		if not page.Visible then
@@ -1440,11 +1473,14 @@ local function addTab(m, scope, name, parent)
 			tw(tl, E.Fast, { TextColor3 = Theme.Sub })
 		end
 	end)
-	tab.activate = activate
 	if #scope.tabs == 1 then
-		task.defer(activate)
+		task.defer(function()
+			if not scope.activeTab and btn.Parent then
+				activate()
+			end
+		end)
 	end
-	return setmetatable({ _m = m, _page = page, _entry = tab, _scope = scope }, { __index = UI._Tab })
+	return setmetatable({ _m = m, _page = scroll, _entry = tab, _scope = scope }, { __index = UI._Tab })
 end
 
 function UI:Tab(name)
@@ -1452,11 +1488,29 @@ function UI:Tab(name)
 end
 
 function UI._Tab:SubTab(name)
-	return addTab(self._m, self._scope, name, self._entry)
+	local entry = self._entry
+	if not entry._strip then
+		entry._strip = makeStrip(entry.page, 4, 12)
+		entry._holder.Position = UDim2.new(0, 0, 0, 38)
+		entry._holder.Size = UDim2.new(1, 0, 1, -38)
+		entry.scroll.Visible = false
+	end
+	return addTab(self._m, entry, name)
 end
 
 UI._Tab.Tab = UI._Tab.SubTab
-function UI._Tab:Open() self._entry.activate() return self end
+
+function UI._Tab:Open()
+	local chain, entry = {}, self._entry
+	while entry do
+		table.insert(chain, 1, entry)
+		entry = entry.parent
+	end
+	for _, tab in ipairs(chain) do
+		tab.activate()
+	end
+	return self
+end
 
 function UI:Window(id, o)
 	o = o or {}
@@ -1482,11 +1536,9 @@ function UI:Window(id, o)
 	local title = label(type(o.header) == "table" and o.header.text or o.header or id, 13, Theme.Text, Theme.Bold, bar)
 	title.Position = UDim2.new(0, 14, 0, 0)
 	title.Size = UDim2.new(1, -50, 1, 0)
-	local side = new("Frame", { Size = UDim2.new(0, 112, 1, -46), Position = UDim2.new(0, 0, 0, 42), BackgroundTransparency = 1, Parent = frame })
-	pad(8, side)
-	list(side, 4)
-	local content = new("Frame", { Size = UDim2.new(1, -112, 1, -46), Position = UDim2.new(0, 112, 0, 42), BackgroundTransparency = 1, ClipsDescendants = true, Parent = frame })
-	local window = setmetatable({ _m = self, id = id, flag = o.flag, frame = frame, scale = scale, _side = side, _content = content, tabs = {}, open = o.open ~= false }, UI._Window)
+	local strip = makeStrip(frame, 40, 12)
+	local content = new("Frame", { Size = UDim2.new(1, 0, 1, -76), Position = UDim2.new(0, 0, 0, 76), BackgroundTransparency = 1, ClipsDescendants = true, Parent = frame })
+	local window = setmetatable({ _m = self, id = id, flag = o.flag, frame = frame, scale = scale, _strip = strip, _holder = content, tabs = {}, open = o.open ~= false }, UI._Window)
 	self._windows[id] = window
 	draggable(self, bar, frame, function()
 		if o.flag then
@@ -1650,14 +1702,25 @@ end
 
 function UI._Tab:Destroy()
 	local entry, scope = self._entry, self._scope
+	local function wipe(tab)
+		for i = #tab.tabs, 1, -1 do
+			wipe(tab.tabs[i])
+			table.remove(tab.tabs, i)
+		end
+		tab.button:Destroy()
+		tab.page:Destroy()
+	end
 	for i = #scope.tabs, 1, -1 do
-		local tab = scope.tabs[i]
-		local owner = tab
-		while owner and owner ~= entry do owner = owner.parent end
-		if owner == entry then
-			tab.button:Destroy()
-			tab.page:Destroy()
+		if scope.tabs[i] == entry then
+			wipe(entry)
 			table.remove(scope.tabs, i)
+			break
+		end
+	end
+	if scope.activeTab == entry then
+		scope.activeTab = nil
+		if scope.tabs[1] then
+			scope.tabs[1].activate()
 		end
 	end
 end

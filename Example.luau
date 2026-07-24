@@ -1,50 +1,51 @@
 local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/EasyUiTesting.luau"))()
-local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/hold/refs/heads/main/esp"))()
 
 local M = UI.new({
-	title = "EasyUI Testing",
+	title = "EasyUI",
 	toggleKey = Enum.KeyCode.RightShift,
-	loadTime = 1.2,
+	loadTime = 0.8,
 	watermark = true,
 	cursor = true,
 	keybindHud = true,
 })
 
-local main = M:Tab("Main")
-local combat = main:SubTab("Combat")
-local aiming = combat:SubTab("Aiming")
-local section = aiming:Section("Controls")
-
-section:Toggle({
-	text = "Enabled",
+local widgets = M:Tab("Widgets")
+local basics = widgets:SubTab("Basics"):Section("Controls")
+basics:Toggle({
+	text = "Master Switch",
 	flag = "demo.enabled",
 	default = true,
-	context = function(context)
-		context:Slider({ text = "FOV", flag = "demo.fov", min = 20, max = 500, default = 120 })
-		context:Dropdown({ text = "Mode", flag = "demo.mode", options = { "Silent", "Assist", "Lock" }, default = "Silent" })
-		context:Colorpicker({ text = "Color", flag = "demo.color", default = UI.Toolkit.Theme.Accent })
+	context = function(ctx)
+		ctx:Slider({ text = "Strength", flag = "demo.strength", min = 0, max = 100, default = 50 })
+		ctx:Colorpicker({ text = "Tint", flag = "demo.tint", default = UI.Toolkit.Theme.Accent })
 	end,
 })
-section:Slider({ text = "Smoothing", flag = "demo.smoothing", min = 0, max = 100, default = 45 })
-section:Textbox({ text = "Target Name", flag = "demo.target", placeholder = "player..." })
+basics:Slider({ text = "Speed", flag = "demo.speed", min = 0, max = 200, default = 60 })
+basics:Dropdown({ text = "Mode", flag = "demo.mode", options = { "Legit", "Rage", "Silent" }, default = "Legit" })
+basics:Keybind({ text = "Action Key", flag = "demo.key", default = Enum.KeyCode.F, callback = function()
+	M:Notify({ title = "Keybind", text = "Action key pressed.", kind = "info", duration = 2 })
+end })
+basics:Textbox({ text = "Nickname", flag = "demo.name", placeholder = "type..." })
+basics:Colorpicker({ text = "Accent", flag = "demo.accent", default = UI.Toolkit.Theme.Accent, callback = function(color)
+	M:SetAccent(color)
+end })
 
-local tools = M:Window("Tools", {
-	x = 700,
-	y = 120,
-	width = 380,
-	height = 330,
-	style = "panel",
-	header = "Runtime Tools",
-	open = false,
-	flag = "windows.tools",
-})
+local extras = widgets:SubTab("Extras"):Section("Display")
+extras:Label("Labels, badges, and dividers:")
+local badge = extras:Badge("Idle", "info")
+extras:Divider()
+extras:Button({ text = "Toast: OK", callback = function()
+	badge:Set("Working", "ok")
+	M:Notify({ title = "EasyUI", text = "Everything nominal.", kind = "ok" })
+end })
+extras:Button({ text = "Toast: Error", callback = function()
+	badge:Set("Broken", "error")
+	M:Notify({ title = "EasyUI", text = "That did not work.", kind = "error" })
+end })
 
-local runtime = tools:Tab("Runtime"):Section("Queue")
-runtime:Button({ text = "Run Budgeted Batch", callback = function()
-	local work = table.create(1000, 0)
-	M:Batch("example", work, function(_, index)
-		work[index] = index * 2
-	end, {
+local runtime = M:Tab("Runtime"):Section("Jobs")
+runtime:Button({ text = "Budgeted Batch (1k items)", callback = function()
+	M:Batch("demo", table.create(1000, 0), function() end, {
 		interval = 0.01,
 		budget = 0.002,
 		chunk = 100,
@@ -53,30 +54,48 @@ runtime:Button({ text = "Run Budgeted Batch", callback = function()
 		end,
 	})
 end })
-runtime:Button({ text = "Close Tools", callback = function() tools:Close() end })
+runtime:Button({ text = "Exec Managed Script", callback = function()
+	M:Exec("pulse", function(ctx)
+		local count = 0
+		ctx:Every("pulse", 1, function()
+			count += 1
+			ctx:Notify({ title = "Pulse", text = "Tick " .. count, kind = "info", duration = 1.5 })
+			if count >= 3 then
+				M:Drop("pulse")
+			end
+		end)
+	end)
+end })
 
-local mediaTab = tools:Tab("Media")
-local mediaSection = mediaTab:Section("Thumbnail")
+local tools = M:Window("Tools", {
+	x = 720,
+	y = 140,
+	width = 400,
+	height = 320,
+	style = "panel",
+	header = "Split Window",
+	open = false,
+	flag = "windows.tools",
+})
+local media = tools:Tab("Media"):Section("Import")
 local mediaLoaded = false
-
-section:Button({ text = "Open Runtime Tools", callback = function() tools:Open() end })
-section:Button({ text = "Load YouTube Thumbnail", callback = function()
+media:Button({ text = "Load YouTube Thumbnail", callback = function()
 	if not mediaLoaded then
 		mediaLoaded = true
-		mediaSection:Media("https://www.youtube.com/watch?v=dQw4w9WgXcQ", { height = 160 })
+		media:Media("https://www.youtube.com/watch?v=dQw4w9WgXcQ", { height = 150 })
 	end
-	mediaTab:Open()
-	tools:Open()
 end })
+tools:Tab("About"):Section("Info"):Label("Split windows nest tabs and subtabs too.")
+
+local windows = M:Tab("Windows"):Section("Split Windows")
+windows:Button({ text = "Open Tools Window", callback = function() tools:Open() end })
+windows:Button({ text = "Close Tools Window", callback = function() tools:Close() end })
 
 M:HUD("Compass")
 M:ConfigTab()
 
-local esp = EasyESP.new()
-M:AttachESP(esp, { enabled = true, start = true, build = true, own = true, singleWindow = true })
-
-task.delay(1.5, function()
-	M:Notify({ title = "EasyUI", text = "Right-click controls for keybinds and mini settings.", kind = "info", duration = 6 })
+task.delay(1.2, function()
+	M:Notify({ title = "EasyUI", text = "RightShift toggles. Right-click any control for keybinds.", kind = "info", duration = 6 })
 end)
 
 return M
