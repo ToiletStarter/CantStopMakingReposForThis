@@ -57,7 +57,8 @@ local M = UI.new({
 	cursor = true,                -- custom cursor; or a table of cursor options
 	keybindHud = true,            -- keybind list; or a table of options
 	loader = true,                -- animated loader before reveal (set false to skip)
-	loadTime = 0.8,               -- loader duration in seconds
+	loadTime = 2.6,               -- loader duration in seconds (throttled to show the full animation)
+	debug = false,                -- start the verbose debug log streaming to rconsole
 	resizable = true,             -- bottom-right resize grip (default true)
 	minWidth = 420, maxWidth = 960,
 	minHeight = 300, maxHeight = 720,
@@ -678,10 +679,84 @@ Registration is also available as `UI.RegisterWidget`, `UI.RegisterHUD`, `UI.Reg
 
 ## Window behavior
 
-- **Drag:** grab the title bar (or any HUD element per the rules below). Dragging is smoothed with a short lerp so the window glides rather than snaps.
+- **Drag:** grab the title bar (or any HUD element per the rules below). Dragging is smoothed with a short lerp so the window glides rather than snaps. While dragging the main or split windows, **centering guides** appear when a window's center aligns with the screen center (it snaps), and a live **x, y** coordinate readout follows the window.
 - **Resize:** drag the dotted grip in the bottom-right corner (disable with `resizable = false`; clamp with `min/maxWidth/Height`).
+- **Open/close animation:** the window scales out of its top-left corner (Apple genie style) — tiny to full on show, full to tiny on the toggle key. The **minimize button** uses a distinct collapse (a slight tilt + shrink to nothing) so you can tell how it was closed.
 - **Top-most:** the `ScreenGui` uses the maximum `DisplayOrder`, so the menu is always above other GUIs.
 - **HUD elements** (watermark, keybind HUD, compass): to prevent accidental nudging, they only drag with **left-click while the menu is open**, and with **middle-click when the menu is closed**.
+
+---
+
+## Input tools
+
+Owned input hooks (auto-disconnected on `Close`) so scripts running through the UI don't manage their own connections:
+
+```lua
+M:GetMouse()                              -- Vector2 mouse location
+M:OnInput(function(input, gameProcessed) end)      -- InputBegan
+M:OnInputEnded(function(input, gameProcessed) end) -- InputEnded
+M:OnMouseMove(function(pos, delta) end)            -- mouse movement
+```
+
+## Description element
+
+A collapsible, richly styled explainer row — click the chevron to expand the description. Great for "what does this do?" text next to a feature.
+
+```lua
+sec:Info({
+	text = "Aimbot",
+	description = UI.Toolkit.Rich("Locks aim to the nearest target. ", { color = Color3.fromRGB(150,200,255) })
+		.. UI.Toolkit.Rich("Use responsibly.", { bold = true, italic = true }),
+	color = Color3.fromRGB(220, 220, 230),
+	open = false,
+})
+```
+
+## Rich text & custom fonts
+
+Every label supports rich text. Build styled strings with the toolkit helper (it escapes your text, then applies tags):
+
+```lua
+local tk = UI.Toolkit
+tk.Rich("Danger", { color = Color3.fromRGB(240,120,120), bold = true, size = 16, underline = true })
+-- also: italic, strike, face = "GothamBlack"
+sec:Label(tk.Rich("Status: ", {}) .. tk.Rich("online", { color = Color3.fromRGB(150,220,170), bold = true }))
+```
+
+Load a custom font from a local file or content id (needs a valid Roblox font asset, not a raw `.ttf`; returns `nil` if unsupported):
+
+```lua
+local face = UI.LoadFont("myfont.json")   -- or a rbxasset id
+if face then someLabel.FontFace = face end
+```
+
+## Debug & introspection
+
+An ultra-verbose ring-buffer log (last 800 lines) you can stream to an executor console (`rconsole*`) and copy to clipboard.
+
+```lua
+local M = UI.new({ debug = true })   -- verbose from the start
+M:SetVerbose(true)                   -- toggle live streaming
+M:Log("info", "hello", somePart)     -- levels are free-form (info/warn/error/debug)
+M:GetLog()                           -- the whole buffer as a string
+M:OpenConsole()                      -- open/name the rconsole and dump the buffer
+M:CopyLog()                          -- setclipboard the buffer (returns bool)
+M:ClearLog()
+```
+
+The UI logs its own lifecycle (create, close, feature add/remove, `Exec` results) so you can see exactly what your scripts did through it.
+
+---
+
+## Limitations & security
+
+**What the UI touches.** The library only creates and mutates **its own `ScreenGui`** and reads client-local services (input, tween, camera, `MarketplaceService:GetProductInfo` for the watermark name). It sends no remotes, never writes to `workspace`, and never reads or writes other players. When it needs a 3D preview it builds a dummy **inside a `ViewportFrame`** — never in the world. Configs are JSON only (no `loadstring`), and filenames are sanitized against path traversal.
+
+**`Exec` is a script loader, not a sandbox.** `Exec`/`ImportFeature`/`ImportHUD` run whatever you give them (function, `ModuleScript`, code string, or URL via `HttpGet`+`loadstring`). The `ctx` handed to a loaded script exposes the full UI, so **only run code you trust** — the UI gives it a clean, owned lifecycle (auto-cleanup, scheduling, windows), not isolation. True Lua sandboxing isn't possible against executor-level identity.
+
+**YouTube.** Only the video **thumbnail** is importable. Actual video playback isn't supported: Roblox can't reliably decode an arbitrary downloaded `.mp4`, and YouTube serves expiring, split DASH/HLS streams that aren't a single downloadable file. `sec:Media("youtube.com/watch?v=...")` shows the thumbnail; for real video, upload a rights-cleared file to Roblox and use its asset id.
+
+**Escape capture.** While assigning a keybind, Escape is temporarily sunk via `ContextActionService` so pressing it to clear a bind won't open the Roblox menu; it's always unbound when capture ends or the UI closes.
 
 ---
 
@@ -705,7 +780,9 @@ Theme.Font, Theme.Bold, Theme.Mono   -- BuilderSans family with Gotham fallback
 `UI.new(options) -> M` · `UI.RegisterWidget(name, fn)` · `UI.RegisterHUD(name, fn)` · `UI.RegisterMedia(ext, fn)` · `UI.Extend(name, value)` · `UI.Toolkit`
 
 ### Instance `M`
-**Core:** `SetVisible(v)` · `Close()` · `SetAccent(c)` · `GameInfo()` · `Attach(instance, layer)`
+**Core:** `SetVisible(v, reason?)` · `Close()` · `SetAccent(c)` · `GameInfo()` · `Attach(instance, layer)`
+**Input:** `GetMouse()` · `OnInput(fn)` · `OnInputEnded(fn)` · `OnMouseMove(fn)`
+**Debug:** `Log(level, ...)` · `SetVerbose(on)` · `GetLog()` · `ClearLog()` · `CopyLog()` · `OpenConsole()`
 **Nav:** `Tab(name)` · `Window(id, opts)` · `GetWindow(id)` · `OpenWindow(id)` · `CloseWindow(id)`
 **State:** `Get(flag)` · `Set(flag, v)` · `Mount(name, root)` · `Unmount(name)` · `Sync(prefix)`
 **Config:** `ExportConfig/CFG` · `ImportConfig/ICFG` · `SaveConfig/SCFG` · `LoadConfig/LCFG` · `DeleteConfig` · `ListConfigs` · `SetAutoload` · `LoadAutoload` · `ConfigTab(opts)`
@@ -717,7 +794,10 @@ Theme.Font, Theme.Bold, Theme.Mono   -- BuilderSans family with Gotham fallback
 `Tab(name)` · `SubTab(name)` · `Section(title)` · `Open()` · `Destroy()`
 
 ### Section
-`Label` · `Divider` · `Badge` · `Toggle` · `Button` · `Slider` · `Dropdown` · `Keybind` · `Textbox` · `Colorpicker` · `Media` · `Widget(name, opts)`
+`Label` · `Divider` · `Badge` · `Toggle` · `Button` · `Slider` · `Dropdown` · `Keybind` · `Textbox` · `Colorpicker` · `Media` · `Info(opts)` · `Widget(name, opts)`
+
+### Toolkit
+`Color` · `Create` · `Tween` · `Theme` · `Kinds` · `Easing` · `PathGet` · `PathSet` · `Rich(text, style)` · `LoadFont(source)` · `RegisterWidget` · `RegisterHUD` · `RegisterMedia` · `Extend` · `Layers` · `Visuals` · `Layer` · `SetLayer` · `VisualLayer` · `SetVisualLayer`
 
 ### Window
 `Tab` · `SubTab` · `Open` · `Close` · `SetVisible(v)` · `GetVisible` · `GetFrame` · `GetState` · `Set(state)` · `Destroy`

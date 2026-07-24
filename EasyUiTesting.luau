@@ -4,6 +4,7 @@ local Tween = game:GetService("TweenService")
 local Run = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local Http = game:GetService("HttpService")
+local CAS = game:GetService("ContextActionService")
 
 local LP = Players.LocalPlayer
 
@@ -17,8 +18,8 @@ local function fontOr(name, fallback)
 end
 
 local Theme = {
-	Font = fontOr("BuilderSansMedium", Enum.Font.GothamMedium),
-	Bold = fontOr("BuilderSansBold", Enum.Font.GothamBold),
+	Font = fontOr("BuilderSansBold", fontOr("GothamBold", Enum.Font.GothamMedium)),
+	Bold = fontOr("BuilderSansExtraBold", fontOr("GothamBold", Enum.Font.GothamBold)),
 	Mono = Enum.Font.Code,
 
 	Accent = Color3.fromRGB(236, 236, 240),
@@ -65,6 +66,9 @@ local E = {
 	Snap = TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 	Pop = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 	Now = TweenInfo.new(0.04, Enum.EasingStyle.Linear),
+	Grow = TweenInfo.new(0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	Shrink = TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+	Glide = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
 }
 
 local function new(class, props, kids)
@@ -118,6 +122,10 @@ local function list(p, gap, dir)
 		Padding = UDim.new(0, gap or 6),
 		Parent = p,
 	})
+end
+
+local function escapeRich(s)
+	return (tostring(s):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
 end
 
 local function label(text, size, color, font, p)
@@ -319,6 +327,21 @@ local function dispose(value)
 	end
 end
 
+local function ensureGuides(ui)
+	if ui._guides then
+		return ui._guides
+	end
+	local function line(w, h, ax, ay, sx, sy)
+		return new("Frame", { Size = UDim2.new(0, w, 0, h) + UDim2.new(sx or 0, 0, sy or 0, 0), Position = UDim2.new(ax, 0, ay, 0), AnchorPoint = Vector2.new(ax, ay), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false, ZIndex = Layers.cursor - 1, Parent = ui.gui })
+	end
+	local v = line(1, 0, 0.5, 0, 0, 1)
+	local h = line(0, 1, 0, 0.5, 1, 0)
+	local lbl = new("TextLabel", { Size = UDim2.fromOffset(92, 20), BackgroundColor3 = Theme.Panel, BackgroundTransparency = 0.05, Text = "", TextColor3 = Theme.Text, Font = Theme.Mono, TextSize = 11, BorderSizePixel = 0, Visible = false, ZIndex = Layers.cursor - 1, Parent = ui.gui })
+	corner(6, lbl)
+	ui._guides = { v = v, h = h, lbl = lbl }
+	return ui._guides
+end
+
 local function draggable(ui, handle, target, finished, opts)
 	opts = opts or {}
 	handle.Active = true
@@ -337,15 +360,42 @@ local function draggable(ui, handle, target, finished, opts)
 		local start = Input:GetMouseLocation()
 		local base = target.Position
 		local desired = base
+		local guides = opts.guides and ensureGuides(ui)
 		local remove = ui:Schedule("__drag", function()
 			target.Position = target.Position:Lerp(desired, 0.35)
 		end, nil, 3000)
 		beginDrag(ui, function(m)
 			local d = m - start
 			desired = UDim2.new(base.X.Scale, base.X.Offset + d.X, base.Y.Scale, base.Y.Offset + d.Y)
+			if guides then
+				local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+				local size = target.AbsoluteSize
+				local left = desired.X.Scale * vp.X + desired.X.Offset
+				local top = desired.Y.Scale * vp.Y + desired.Y.Offset
+				local snapX = math.abs(left + size.X / 2 - vp.X / 2) < 8
+				local snapY = math.abs(top + size.Y / 2 - vp.Y / 2) < 8
+				if snapX then
+					desired = UDim2.new(desired.X.Scale, vp.X / 2 - size.X / 2 - desired.X.Scale * vp.X, desired.Y.Scale, desired.Y.Offset)
+					left = vp.X / 2 - size.X / 2
+				end
+				if snapY then
+					desired = UDim2.new(desired.X.Scale, desired.X.Offset, desired.Y.Scale, vp.Y / 2 - size.Y / 2 - desired.Y.Scale * vp.Y)
+					top = vp.Y / 2 - size.Y / 2
+				end
+				guides.v.Visible = snapX
+				guides.h.Visible = snapY
+				guides.lbl.Visible = true
+				guides.lbl.Text = ("%d, %d"):format(math.floor(left), math.floor(top))
+				guides.lbl.Position = UDim2.fromOffset(math.floor(left), math.floor(top) - 24)
+			end
 		end, function()
 			remove()
 			target.Position = desired
+			if guides then
+				guides.v.Visible = false
+				guides.h.Visible = false
+				guides.lbl.Visible = false
+			end
 			if finished then
 				finished()
 			end
@@ -394,6 +444,9 @@ function UI:_connect(signal, callback)
 end
 
 function UI:_cleanup()
+	if self._escBound then
+		pcall(function() self:_setCapture(nil) end)
+	end
 	for _, connection in ipairs(self._connections) do
 		connection:Disconnect()
 	end
@@ -474,7 +527,7 @@ function UI.new(o)
 	self._scale = scale
 
 	local bar = new("Frame", { Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, Parent = win })
-	draggable(self, bar, win)
+	draggable(self, bar, win, nil, { guides = true })
 	local dot = new("Frame", {
 		Size = UDim2.fromOffset(9, 9),
 		Position = UDim2.new(0, 16, 0.5, 0),
@@ -519,7 +572,7 @@ function UI.new(o)
 		self:Close()
 	end)
 	pill(-44, Theme.Sub, function()
-		self:SetVisible(false)
+		self:SetVisible(false, "minimize")
 	end)
 
 	new("Frame", {
@@ -619,7 +672,7 @@ function UI.new(o)
 	task.spawn(function()
 		local info = self:GameInfo()
 		if info and info.name then
-			gameName = info.name
+			gameName = escapeRich(info.name)
 			paint()
 		end
 	end)
@@ -642,12 +695,12 @@ function UI.new(o)
 		if self._captureKey then
 			if i.KeyCode ~= Enum.KeyCode.Unknown then
 				local capture = self._captureKey
-				self._captureKey = nil
+				self:_setCapture(nil)
 				capture(i)
 				return
 			elseif i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.MouseButton2 or i.UserInputType == Enum.UserInputType.Touch then
 				local capture = self._captureKey
-				self._captureKey = nil
+				self:_setCapture(nil)
 				capture(nil)
 			end
 		end
@@ -664,11 +717,19 @@ function UI.new(o)
 			for _, wd in ipairs(self.widgets) do
 				if wd.bindKey == i.KeyCode and wd.activate and (not wd.row or wd.row:IsDescendantOf(self.gui)) then
 					task.spawn(wd.activate)
+					if wd.getState and not (wd.opt and wd.opt.silent) then
+						task.defer(function()
+							local on = wd.getState()
+							self:Notify({ title = (wd.opt and wd.opt.text) or "Keybind", text = on and "Enabled" or "Disabled", kind = on and "ok" or "warn", duration = 1.4 })
+						end)
+					end
 				end
 			end
 		end
 	end)
 	self:_ctxInit()
+	if o.debug then self:SetVerbose(true) end
+	self:Log("info", "created", self.title)
 	if o.cursor then self:SetCursor(true, type(o.cursor) == "table" and o.cursor or nil) end
 	if o.keybindHud then self:SetKeybindHUD(true, type(o.keybindHud) == "table" and o.keybindHud or nil) end
 
@@ -678,16 +739,17 @@ function UI.new(o)
 			return
 		end
 		win.Visible = true
+		win.Rotation = 0
 		win.BackgroundTransparency = 0
-		scale.Scale = 0.7
-		tw(scale, E.Pop, { Scale = 1 })
+		scale.Scale = 0.35
+		tw(scale, E.Grow, { Scale = 1 })
 	end
 	if o.loader == false then
 		reveal()
 	else
 		self._loading = true
 		win.Visible = false
-		self:_showLoader(o.loadTime or 1.8, reveal)
+		self:_showLoader(o.loadTime or 2.6, reveal)
 	end
 	env.__EASYUI_ACTIVE = self
 	return self
@@ -819,7 +881,7 @@ function UI:_showLoader(dur, done)
 	end)
 end
 
-function UI:SetVisible(v)
+function UI:SetVisible(v, reason)
 	v = v and true or false
 	if self._cursorNative ~= nil then
 		if v or self._cursorAlways then
@@ -843,10 +905,21 @@ function UI:SetVisible(v)
 	if v then
 		self.window.Visible = true
 		self.window.BackgroundTransparency = 0
-		self._scale.Scale = 0.7
-		tw(self._scale, E.Pop, { Scale = 1 })
+		self._scale.Scale = 0.35
+		tw(self.window, E.Grow, { Rotation = 0 })
+		tw(self._scale, E.Grow, { Scale = 1 })
+	elseif reason == "minimize" then
+		tw(self.window, E.Shrink, { Rotation = -7 })
+		local t = tw(self._scale, E.Shrink, { Scale = 0.02 })
+		t.Completed:Connect(function()
+			if not self.visible then
+				self.window.Visible = false
+				self.window.Rotation = 0
+				self._scale.Scale = 1
+			end
+		end)
 	else
-		local t = tw(self._scale, E.Smooth, { Scale = 0.7 })
+		local t = tw(self._scale, E.Shrink, { Scale = 0.35 })
 		t.Completed:Connect(function()
 			if not self.visible then
 				self.window.Visible = false
@@ -861,7 +934,9 @@ function UI:Close()
 		return
 	end
 	self._closing = true
+	self:Log("info", "closing", self.title)
 	self._dragMove, self._dragUp = nil, nil
+	self:_setCapture(nil)
 	self:SetCursor(false)
 	if self._espLink then
 		self._espLink:detach()
@@ -1190,6 +1265,7 @@ function UI:Use(name, feature)
 			error(err, 0)
 		end
 	end
+	self:Log("debug", "feature +", name)
 	local flag = "features." .. name .. ".enabled"
 	local seeded = self.flags[flag]
 	self.flags[flag] = true
@@ -1210,6 +1286,7 @@ function UI:Drop(name)
 		return false
 	end
 	self._features[tostring(name)] = nil
+	self:Log("debug", "feature -", name)
 	local value = entry.value
 	pcall(dispose, value)
 	for i = #entry.owned, 1, -1 do
@@ -1289,6 +1366,7 @@ function UI:Exec(name, source, options)
 		end
 		handle.status = ok and "loaded" or "failed"
 		handle.value, handle.error = ok and result or nil, ok and nil or result
+		self:Log(ok and "info" or "error", "exec", name, handle.status, not ok and tostring(result) or "")
 		if not ok then
 			warn("[EasyUI] " .. tostring(result))
 		end
@@ -1835,7 +1913,7 @@ function UI:Window(id, o)
 		if o.flag then
 			self:_write(o.flag, window:GetState())
 		end
-	end)
+	end, { guides = true })
 	if o.close ~= false then
 		local close = new("TextButton", { Text = "×", TextSize = 18, TextColor3 = Theme.Sub, Font = Theme.Font, AutoButtonColor = false, Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -34, 0, 5), BackgroundColor3 = Theme.Control, BorderSizePixel = 0, Parent = bar })
 		corner(8, close)
@@ -2055,6 +2133,41 @@ function UI._Sec:Widget(name, o)
 	return builder(self, o or {}, UI.Toolkit)
 end
 
+function UI._Sec:Info(o)
+	o = o or {}
+	local holder = new("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, ClipsDescendants = true, Parent = self._card })
+	local head = new("TextButton", { Text = "", AutoButtonColor = false, Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, BorderSizePixel = 0, Parent = holder })
+	local title = label(o.text or "Info", 12, o.color or Theme.Sub, o.font or Theme.Font, head)
+	title.RichText = true
+	title.Size = UDim2.new(1, -20, 1, 0)
+	local arrow = label("▾", 12, Theme.Sub, Theme.Font, head)
+	arrow.Position = UDim2.new(1, -18, 0, 0)
+	arrow.Size = UDim2.fromOffset(16, 22)
+	arrow.TextXAlignment = Enum.TextXAlignment.Center
+	local body = label(o.description or "", 11, Theme.Muted, o.font or Theme.Font, holder)
+	body.RichText = true
+	body.TextWrapped = true
+	body.TextYAlignment = Enum.TextYAlignment.Top
+	body.Position = UDim2.new(0, 0, 0, 24)
+	body.Size = UDim2.new(1, 0, 0, 40)
+	local open = o.open == true
+	local function relayout()
+		local lines = open and math.max(1, math.ceil(textWidth(body.Text, 11, Theme.Font) / (self._card.AbsoluteSize.X - 24))) or 0
+		body.Size = UDim2.new(1, 0, 0, lines * 15)
+		holder.Size = UDim2.new(1, 0, 0, 22 + (open and (lines * 15 + 4) or 0))
+		arrow.Rotation = open and 180 or 0
+	end
+	head.MouseButton1Click:Connect(function()
+		open = not open
+		relayout()
+	end)
+	task.defer(relayout)
+	return {
+		SetDescription = function(_, text) body.Text = text relayout() end,
+		SetOpen = function(_, v) open = v and true or false relayout() end,
+	}
+end
+
 function UI.RegisterWidget(name, builder)
 	UI._widgetBuilders[tostring(name)] = builder
 end
@@ -2245,15 +2358,16 @@ function UI._Sec:Slider(o)
 	self._m._accentUpdaters[#self._m._accentUpdaters + 1] = { fill, function(c) fill.BackgroundColor3 = c end }
 	corner(999, fill)
 	local knob = new("Frame", {
-		Size = UDim2.fromOffset(12, 12),
+		Size = UDim2.fromOffset(0, 0),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundColor3 = Theme.Text,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 3,
 		Parent = track,
 	})
 	corner(999, knob)
-	stroke(Theme.Soft, 1, 0, knob)
+	local knobStroke = stroke(Theme.Soft, 1, 1, knob)
 
 	local function fmt(v)
 		if dec > 0 then
@@ -2261,8 +2375,14 @@ function UI._Sec:Slider(o)
 		end
 		return tostring(math.floor(v + 0.5))
 	end
+	local dragging = false
+	local shown = value
+	local function showKnob(on)
+		tw(knob, E.Snap, { Size = on and UDim2.fromOffset(14, 14) or UDim2.fromOffset(0, 0), BackgroundTransparency = on and 0 or 1 })
+		tw(knobStroke, E.Fast, { Transparency = on and 0 or 1 })
+	end
 	local api = {}
-	local function apply(v, anim, fire)
+	local function apply(v, mode, fire)
 		local snapped = math.clamp(min + math.floor(((tonumber(v) or min) - min) / step + 0.5) * step, min, max)
 		if dec > 0 then
 			snapped = tonumber(string.format("%." .. dec .. "f", snapped)) or snapped
@@ -2273,14 +2393,20 @@ function UI._Sec:Slider(o)
 		value = snapped
 		local span = max - min
 		local a = span == 0 and 0 or (value - min) / span
-		if anim then
-			tw(fill, E.Fast, { Size = UDim2.new(a, 0, 1, 0) })
-			tw(knob, E.Fast, { Position = UDim2.new(a, 0, 0.5, 0) })
+		if mode == "drag" then
+			tw(fill, E.Now, { Size = UDim2.new(a, 0, 1, 0) })
+			tw(knob, E.Now, { Position = UDim2.new(a, 0, 0.5, 0) })
+		elseif mode then
+			tw(fill, E.Glide, { Size = UDim2.new(a, 0, 1, 0) })
+			tw(knob, E.Glide, { Position = UDim2.new(a, 0, 0.5, 0) })
 		else
 			fill.Size = UDim2.new(a, 0, 1, 0)
 			knob.Position = UDim2.new(a, 0, 0.5, 0)
 		end
-		val.Text = fmt(value)
+		if not dragging then
+			shown = value
+			val.Text = fmt(value)
+		end
 		if o.flag then
 			self._m:_write(o.flag, value)
 		end
@@ -2298,13 +2424,21 @@ function UI._Sec:Slider(o)
 	if o.flag then
 		self._m._flagWidgets[o.flag] = api
 	end
-	local dragging = false
+	local sliderRemove
 	local function fromX()
 		local a = math.clamp((Input:GetMouseLocation().X - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-		apply(min + a * (max - min), false, true)
+		apply(min + a * (max - min), "drag", true)
 	end
 	track.MouseButton1Down:Connect(function()
 		dragging = true
+		showKnob(true)
+		sliderRemove = self._m:Schedule("__slider", function(dt)
+			shown += (value - shown) * math.min(1, dt * 16)
+			if math.abs(shown - value) < (step / 100 + 1e-4) then
+				shown = value
+			end
+			val.Text = fmt(shown)
+		end, nil, 2500)
 		fromX()
 		beginDrag(self._m, function()
 			if dragging then
@@ -2312,6 +2446,13 @@ function UI._Sec:Slider(o)
 			end
 		end, function()
 			dragging = false
+			showKnob(false)
+			if sliderRemove then
+				sliderRemove()
+				sliderRemove = nil
+			end
+			shown = value
+			val.Text = fmt(value)
 		end)
 	end)
 	self._m:_reg({ kind = "slider", opt = o, row = r, activate = function() api:Set(value + step) end })
@@ -2500,7 +2641,7 @@ function UI._Sec:Keybind(o)
 	b.MouseButton1Click:Connect(function()
 		bl.Text = "..."
 		tw(b, E.Fast, { BackgroundColor3 = Theme.Hover })
-		self._m._captureKey = function(i)
+		self._m:_setCapture(function(i)
 			tw(b, E.Fast, { BackgroundColor3 = Theme.Control })
 			if not i then
 				api:Set(key)
@@ -2509,7 +2650,7 @@ function UI._Sec:Keybind(o)
 			else
 				api:Set(i.KeyCode)
 			end
-		end
+		end)
 	end)
 	wd = self._m:_reg({
 		kind = "keybind",
@@ -2662,11 +2803,13 @@ function UI._Sec:Colorpicker(o)
 	pad(0, hex, 8, 0, 8, 0)
 	local hu, sa, va = color:ToHSV()
 	local api = {}
+	local markLift = 0
 	local function refresh(fire)
 		color = Color3.fromHSV(hu, sa, va)
 		sw.BackgroundColor3 = color
 		sat.BackgroundColor3 = Color3.fromHSV(hu, 1, 1)
-		satMark.Position = UDim2.fromScale(sa, 1 - va)
+		satMark.BackgroundColor3 = color
+		satMark.Position = UDim2.new(sa, 0, 1 - va, -markLift)
 		hueMark.Position = UDim2.new(0, -2, hu, -3 * hu)
 		hex.Text = Color.hex(color)
 		if o.flag then
@@ -2679,6 +2822,8 @@ function UI._Sec:Colorpicker(o)
 	local ds, dh
 	sat.MouseButton1Down:Connect(function()
 		ds = true
+		markLift = 18
+		tw(satMark, E.Snap, { Size = UDim2.fromOffset(16, 16) })
 		local m = Input:GetMouseLocation()
 		sa = math.clamp((m.X - sat.AbsolutePosition.X) / math.max(sat.AbsoluteSize.X, 1), 0, 1)
 		va = 1 - math.clamp((m.Y - sat.AbsolutePosition.Y) / math.max(sat.AbsoluteSize.Y, 1), 0, 1)
@@ -2691,6 +2836,9 @@ function UI._Sec:Colorpicker(o)
 			end
 		end, function()
 			ds = false
+			markLift = 0
+			tw(satMark, E.Snap, { Size = UDim2.fromOffset(8, 8) })
+			refresh(false)
 		end)
 	end)
 	hueBar.MouseButton1Down:Connect(function()
@@ -2961,9 +3109,24 @@ function UI:_ctxInit()
 	end)
 end
 
+function UI:_setCapture(fn)
+	self._captureKey = fn
+	if fn and not self._escBound then
+		self._escBound = true
+		pcall(function()
+			CAS:BindActionAtPriority("EasyUI_CaptureEsc", function()
+				return Enum.ContextActionResult.Sink
+			end, false, 3000, Enum.KeyCode.Escape)
+		end)
+	elseif not fn and self._escBound then
+		self._escBound = false
+		pcall(CAS.UnbindAction, CAS, "EasyUI_CaptureEsc")
+	end
+end
+
 function UI:_closeContext()
 	if self._ctx then self._ctx.Visible = false end
-	self._captureKey = nil
+	self:_setCapture(nil)
 	for flag, api in pairs(self._ctxFlags or {}) do
 		if self._flagWidgets[flag] == api.current then
 			self._flagWidgets[flag] = api.previous
@@ -2977,7 +3140,6 @@ end
 
 function UI:_openContext(wd)
 	local pop = self._ctx
-	self._captureKey = nil
 	self:_closeContext()
 	for _, c in ipairs(self._ctxHold:GetChildren()) do
 		if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then
@@ -3010,7 +3172,7 @@ function UI:_openContext(wd)
 		bl.ZIndex = 63
 		b.MouseButton1Click:Connect(function()
 			bl.Text = "..."
-			self._captureKey = function(i)
+			self:_setCapture(function(i)
 				if not i then
 					bl.Text = wd.bindKey and wd.bindKey.Name or "None"
 				elseif i.KeyCode == Enum.KeyCode.Escape then
@@ -3021,7 +3183,7 @@ function UI:_openContext(wd)
 					bl.Text = i.KeyCode.Name
 				end
 				self:_refreshBindHUD()
-			end
+			end)
 		end)
 	end
 
@@ -3125,18 +3287,117 @@ function UI:Preview(o)
 	return win
 end
 
+function UI:GetMouse()
+	return Input:GetMouseLocation()
+end
+
+function UI:OnInput(fn)
+	return self:_connect(Input.InputBegan, function(i, gp) fn(i, gp) end)
+end
+
+function UI:OnInputEnded(fn)
+	return self:_connect(Input.InputEnded, function(i, gp) fn(i, gp) end)
+end
+
+function UI:OnMouseMove(fn)
+	return self:_connect(Input.InputChanged, function(i)
+		if i.UserInputType == Enum.UserInputType.MouseMovement then
+			fn(Input:GetMouseLocation(), i.Delta)
+		end
+	end)
+end
+
+function UI:Log(level, ...)
+	self._log = self._log or {}
+	local parts = {}
+	for _, v in ipairs({ ... }) do
+		parts[#parts + 1] = typeof(v) == "Instance" and v:GetFullName() or tostring(v)
+	end
+	local line = ("[%7.2f][%s] %s"):format(os.clock(), tostring(level):upper(), table.concat(parts, " "))
+	self._log[#self._log + 1] = line
+	if #self._log > 800 then
+		table.remove(self._log, 1)
+	end
+	if self._verbose then
+		if type(rconsoleprint) == "function" then
+			pcall(rconsoleprint, line .. "\n")
+		else
+			print(line)
+		end
+	end
+	return line
+end
+
+function UI:SetVerbose(on)
+	self._verbose = on and true or false
+	if self._verbose and type(rconsolename) == "function" then
+		pcall(rconsolename, "EasyUI Debug")
+	end
+	return self
+end
+
+function UI:GetLog()
+	return table.concat(self._log or {}, "\n")
+end
+
+function UI:ClearLog()
+	self._log = {}
+end
+
+function UI:CopyLog()
+	if type(setclipboard) == "function" then
+		return (pcall(setclipboard, self:GetLog()))
+	end
+	return false
+end
+
+function UI:OpenConsole()
+	self._verbose = true
+	if type(rconsolecreate) == "function" then pcall(rconsolecreate) end
+	if type(rconsolename) == "function" then pcall(rconsolename, "EasyUI Debug") end
+	if type(rconsoleprint) == "function" then pcall(rconsoleprint, self:GetLog() .. "\n") end
+	return self
+end
+
+local function richText(text, o)
+	o = o or {}
+	local s = escapeRich(text)
+	if o.color then s = ('<font color="%s">%s</font>'):format(Color.hex(o.color), s) end
+	if o.size then s = ('<font size="%d">%s</font>'):format(o.size, s) end
+	if o.face or o.font then s = ('<font face="%s">%s</font>'):format(tostring(o.face or o.font), s) end
+	if o.bold then s = "<b>" .. s .. "</b>" end
+	if o.italic then s = "<i>" .. s .. "</i>" end
+	if o.underline then s = "<u>" .. s .. "</u>" end
+	if o.strike then s = "<s>" .. s .. "</s>" end
+	return s
+end
+
+function UI.LoadFont(source)
+	local ok, f = pcall(function()
+		local id = source
+		if type(getcustomasset) == "function" and not tostring(source):match("^rbx") then
+			id = getcustomasset(source)
+		end
+		return Font.new(id)
+	end)
+	return ok and f or nil
+end
+
 UI.Toolkit = {
 	Color = Color,
 	Create = new,
 	Tween = tw,
 	Theme = Theme,
 	Kinds = Kind,
+	Easing = E,
 	PathGet = pathGet,
 	PathSet = pathSet,
 	RegisterWidget = UI.RegisterWidget,
 	RegisterHUD = UI.RegisterHUD,
 	RegisterMedia = UI.RegisterMedia,
 	Extend = UI.Extend,
+	Rich = richText,
+	LoadFont = UI.LoadFont,
 	Layers = Layers,
 	Visuals = Visuals,
 	Layer = function(name) return Layers[name] end,

@@ -28,11 +28,19 @@ basics:Keybind({ text = "Action Key", flag = "demo.key", default = Enum.KeyCode.
 	M:Notify({ title = "Keybind", text = "Action key pressed.", kind = "info", duration = 2 })
 end })
 basics:Textbox({ text = "Nickname", flag = "demo.name", placeholder = "type..." })
+basics:Button({ text = "Copy Debug Log", callback = function()
+	M:CopyLog()
+	M:Notify({ title = "Debug", text = "Log copied to clipboard.", kind = "info", duration = 2 })
+end })
 basics:Colorpicker({ text = "Accent", flag = "demo.accent", default = UI.Toolkit.Theme.Accent, callback = function(color)
 	M:SetAccent(color)
 end })
 
 local extras = widgets:SubTab("Extras"):Section("Display")
+extras:Info({
+	text = UI.Toolkit.Rich("What is this?", { bold = true, color = Color3.fromRGB(180, 210, 255) }),
+	description = "Click the chevron to reveal styled, colorable, bold rich-text descriptions for any feature.",
+})
 extras:Label("Labels, badges, and dividers:")
 local badge = extras:Badge("Idle", "info")
 extras:Divider()
