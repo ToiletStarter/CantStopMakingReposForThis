@@ -42,6 +42,7 @@ local M = UI.new({
 19. [Window behavior — drag, resize, top-most](#window-behavior)
 20. [Theme](#theme)
 21. [Full API reference](#api-reference)
+22. [Changelog](#changelog)
 
 ---
 
@@ -209,7 +210,7 @@ d:Get(); d:Set("Lock")
 d:SetItems({ "A", "B" })   -- resets value if the current one is gone
 ```
 
-Right-click activation cycles to the next option.
+Right-click activation cycles to the next option. The open option list is capped in height and scrolls once the items overflow, so long lists don't run past the window.
 
 ### Keybind
 
@@ -452,6 +453,8 @@ local handle = M:Exec("myscript", source, { priority = 0 })
 -- source: a function(ctx), a ModuleScript, a code string, or an https URL
 handle:Cancel()      -- dequeue if pending, drop if running
 -- handle.status: "queued" | "running" | "loaded" | "failed" | "cancelled"
+-- handle.value: the loaded script's return value on success, nil otherwise
+-- handle.error: set only when status == "failed"; nil on success
 ```
 
 The script receives a constrained context so it plugs into the UI's optimizations without touching internals:
@@ -770,7 +773,9 @@ Theme.Ok, Theme.Warn, Theme.Err, Theme.Info
 Theme.Font, Theme.Bold, Theme.Mono   -- BuilderSans family with Gotham fallback
 ```
 
-`M:SetAccent(color)` recolors every accent-driven element live. The theme table is shared across the single active instance.
+`M:SetAccent(color)` recolors every accent-driven element live.
+
+**Accent is per-instance.** `accent` in `UI.new` and `M:SetAccent(color)` store the color on the instance, so two instances never inherit each other's accent and closing one leaves nothing to restore. The rest of the theme table (colors, fonts) is shared module state, and `UI.Toolkit.Theme.Accent` is the library default rather than the live instance accent — read the current one from the instance instead. Custom widgets that need the live accent should paint from the color passed by `M:SetAccent` (register in the accent updater list the same way built-in widgets do) or take an explicit color option.
 
 ---
 
@@ -801,3 +806,21 @@ Theme.Font, Theme.Bold, Theme.Mono   -- BuilderSans family with Gotham fallback
 
 ### Window
 `Tab` · `SubTab` · `Open` · `Close` · `SetVisible(v)` · `GetVisible` · `GetFrame` · `GetState` · `Set(state)` · `Destroy`
+
+---
+
+## Changelog
+
+No public method, widget option, config key, or default changed in any of the entries below.
+
+### Stability pass
+
+- **Accent is per-instance.** `accent` / `SetAccent` no longer mutate the shared theme table, so a second `UI.new` no longer inherits the previous instance's accent and closing an instance leaves no residue. `UI.Toolkit.Theme.Accent` now reports the library default. See [Theme](#theme).
+- **`Exec` handle.** `handle.error` is set only when the load fails; a successful `Exec` now reports `error = nil`. See [Exec](#exec--run-a-whole-script-through-the-ui).
+- **Feature setup no longer runs twice.** A setup function returning `nil`/`false` was stored as the feature value itself, so teardown re-invoked the setup. `Use`/`Exec` now keep the returned value verbatim.
+- **`SetFeatureEnabled(name, true)`** no longer calls the feature's `Stop` when it has no `Start`.
+- **Overlapping drags.** Starting a drag while another is in flight now finishes the first one, instead of stranding the earlier widget in a permanent drag state with a leaked per-frame job.
+- **Keybind dispatch** is a keycode lookup instead of a scan over every widget on every key press.
+- **Keybind HUD rows** are repainted in place rather than destroyed and rebuilt on every toggle or rebind.
+- **Dropdown lists** cap their height and scroll instead of growing past the window.
+- **Leaks fixed:** the frame-scheduler connection is cleared on cleanup (previously `Schedule`/`Every`/`Batch` silently stopped running after the GUI was reparented away), accent updaters are pruned with destroyed widgets, and a color picker whose row is destroyed no longer leaves a dangling open-picker reference.

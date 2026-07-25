@@ -212,6 +212,11 @@ function Color.lerp(a, b, t)
 end
 
 local function beginDrag(ui, move, up)
+	local pending = ui._dragUp
+	ui._dragMove, ui._dragUp = nil, nil
+	if pending then
+		pcall(pending)
+	end
 	ui._dragMove, ui._dragUp = move, up
 end
 
@@ -335,7 +340,7 @@ local function ensureGuides(ui)
 		return ui._guides
 	end
 	local function line(w, h, ax, ay, sx, sy)
-		return new("Frame", { Size = UDim2.new(0, w, 0, h) + UDim2.new(sx or 0, 0, sy or 0, 0), Position = UDim2.new(ax, 0, ay, 0), AnchorPoint = Vector2.new(ax, ay), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false, ZIndex = Layers.cursor - 1, Parent = ui.gui })
+		return new("Frame", { Size = UDim2.new(0, w, 0, h) + UDim2.new(sx or 0, 0, sy or 0, 0), Position = UDim2.new(ax, 0, ay, 0), AnchorPoint = Vector2.new(ax, ay), BackgroundColor3 = ui._accent or Theme.Accent, BackgroundTransparency = 0.45, BorderSizePixel = 0, Visible = false, ZIndex = Layers.cursor - 1, Parent = ui.gui })
 	end
 	local v = line(1, 0, 0.5, 0, 0, 1)
 	local h = line(0, 1, 0, 0.5, 1, 0)
@@ -470,6 +475,28 @@ function UI:_cleanup()
 		connection:Disconnect()
 	end
 	self._connections = {}
+	self._jobConnection = nil
+end
+
+local NO_BINDS = {}
+
+function UI:_bindsFor(key)
+	if self._bindIndexDirty ~= false then
+		local index = {}
+		for _, wd in ipairs(self.widgets) do
+			if wd.bindKey and wd.activate then
+				local bucket = index[wd.bindKey]
+				if not bucket then
+					bucket = {}
+					index[wd.bindKey] = bucket
+				end
+				bucket[#bucket + 1] = wd
+			end
+		end
+		self._bindIndex = index
+		self._bindIndexDirty = false
+	end
+	return self._bindIndex[key] or NO_BINDS
 end
 
 function UI.new(o)
@@ -525,9 +552,7 @@ function UI.new(o)
 	self._flagWidgets = {}
 	self._features = {}
 	self._runtimeFolder = new("Folder", { Name = "Runtime", Archivable = false, Parent = self.gui })
-	if o.accent then
-		Theme.Accent = o.accent
-	end
+	self._accent = o.accent or Theme.Accent
 
 	local w, h = o.width or 560, o.height or 420
 	local win = new("Frame", {
@@ -563,7 +588,7 @@ function UI.new(o)
 		Size = UDim2.fromOffset(9, 9),
 		Position = UDim2.new(0, 16, 0.5, 0),
 		AnchorPoint = Vector2.new(0, 0.5),
-		BackgroundColor3 = Theme.Accent,
+		BackgroundColor3 = self._accent,
 		BorderSizePixel = 0,
 		Parent = bar,
 	})
@@ -679,7 +704,7 @@ function UI.new(o)
 		Size = UDim2.fromOffset(7, 7),
 		Position = UDim2.new(0, 12, 0.5, 0),
 		AnchorPoint = Vector2.new(0, 0.5),
-		BackgroundColor3 = Theme.Accent,
+		BackgroundColor3 = self._accent,
 		BorderSizePixel = 0,
 		Parent = wm,
 	})
@@ -745,7 +770,7 @@ function UI.new(o)
 			return
 		end
 		if i.KeyCode ~= Enum.KeyCode.Unknown then
-			for _, wd in ipairs(self.widgets) do
+			for _, wd in ipairs(self:_bindsFor(i.KeyCode)) do
 				if wd.bindKey == i.KeyCode and wd.activate and (not wd.row or wd.row:IsDescendantOf(self.gui)) then
 					task.spawn(wd.activate)
 					if wd.getState and not (wd.opt and wd.opt.silent) then
@@ -829,7 +854,7 @@ function UI:_showLoader(dur, done)
 		Size = UDim2.new(1, 0, 0, 0),
 		Position = UDim2.new(0, 0, 1, 0),
 		AnchorPoint = Vector2.new(0, 1),
-		BackgroundColor3 = Theme.Accent,
+		BackgroundColor3 = self._accent,
 		BorderSizePixel = 0,
 		ZIndex = 102,
 		Parent = beaker,
@@ -839,7 +864,7 @@ function UI:_showLoader(dur, done)
 		local b = new("Frame", {
 			Size = UDim2.fromOffset(72, 72),
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			BackgroundColor3 = Theme.Accent,
+			BackgroundColor3 = self._accent,
 			BorderSizePixel = 0,
 			ZIndex = 102,
 			Parent = fill,
@@ -985,7 +1010,7 @@ function UI:Close()
 end
 
 function UI:SetAccent(c)
-	Theme.Accent = c
+	self._accent = c
 	self._dot.BackgroundColor3 = c
 	if self._wmDot then
 		self._wmDot.BackgroundColor3 = c
@@ -1024,12 +1049,12 @@ function UI:SetCursor(enabled, o)
 		self._cursorPaint = DrawingImmediate.GetPaint(1000):Connect(function()
 			if self.visible or o.always then
 				local p, size = Input:GetMouseLocation(), o.size or 14
-				DrawingImmediate.FilledTriangle(p, p + Vector2.new(0, size), p + Vector2.new(size * 0.7, size * 0.7), o.color or Theme.Accent, 1)
+				DrawingImmediate.FilledTriangle(p, p + Vector2.new(0, size), p + Vector2.new(size * 0.7, size * 0.7), o.color or self._accent, 1)
 			end
 		end)
 		return self._cursorPaint
 	end
-	local cursor = new("Frame", { Size = UDim2.fromOffset(o.size or 12, o.size or 12), AnchorPoint = Vector2.new(0, 0), Rotation = 45, BackgroundColor3 = o.color or Theme.Accent, BorderSizePixel = 0, ZIndex = Layers.cursor, Parent = self.gui })
+	local cursor = new("Frame", { Size = UDim2.fromOffset(o.size or 12, o.size or 12), AnchorPoint = Vector2.new(0, 0), Rotation = 45, BackgroundColor3 = o.color or self._accent, BorderSizePixel = 0, ZIndex = Layers.cursor, Parent = self.gui })
 	corner(2, cursor)
 	stroke(Color3.new(0, 0, 0), 1, 0.25, cursor)
 	self._cursor = cursor
@@ -1042,6 +1067,7 @@ function UI:SetCursor(enabled, o)
 end
 
 function UI:_refreshBindHUD()
+	self._bindIndexDirty = true
 	if not self._bindHud or self._bindHudPending then return end
 	self._bindHudPending = true
 	task.defer(function()
@@ -1053,8 +1079,10 @@ function UI:_refreshBindHUD()
 end
 
 function UI:_refreshBindHUDNow()
-	for _, child in ipairs(self._bindHudBody:GetChildren()) do
-		if child:IsA("TextLabel") then child:Destroy() end
+	local rows = self._bindHudRows
+	if not rows then
+		rows = {}
+		self._bindHudRows = rows
 	end
 	local count = 0
 	for _, widget in ipairs(self.widgets) do
@@ -1069,9 +1097,20 @@ function UI:_refreshBindHUDNow()
 			if typeof(col) ~= "Color3" then
 				col = state and Theme.Ok or Theme.Sub
 			end
-			local row = label("[" .. widget.bindKey.Name .. "]  " .. ((widget.opt and widget.opt.text) or widget.kind), 11, col, Theme.Mono, self._bindHudBody)
-			row.Size = UDim2.new(1, 0, 0, 16)
+			local row = rows[count]
+			if not row or row.Parent ~= self._bindHudBody then
+				row = label("", 11, col, Theme.Mono, self._bindHudBody)
+				row.Size = UDim2.new(1, 0, 0, 16)
+				rows[count] = row
+			end
+			row.LayoutOrder = count
+			row.Text = "[" .. widget.bindKey.Name .. "]  " .. ((widget.opt and widget.opt.text) or widget.kind)
+			row.TextColor3 = col
+			row.Visible = true
 		end
+	end
+	for i = count + 1, #rows do
+		rows[i].Visible = false
 	end
 	self._bindHud.Size = UDim2.fromOffset(220, 34 + count * 18)
 	self._bindHud.Visible = count > 0
@@ -1081,12 +1120,14 @@ function UI:SetKeybindHUD(enabled, o)
 	o = o or {}
 	if not enabled then
 		if self._bindHud then self._bindHud:Destroy() self._bindHud = nil end
+		self._bindHudRows = nil
 		return
 	end
 	if self._bindHud then
 		self._bindHud:Destroy()
 		self._bindHud = nil
 	end
+	self._bindHudRows = nil
 	local hud = new("Frame", { Size = UDim2.fromOffset(220, 34), Position = o.position or UDim2.new(0, 16, 0, 54), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, ZIndex = Layers.hud, Parent = self.gui })
 	corner(10, hud)
 	stroke(Theme.Stroke, 1, 0.1, hud)
@@ -1279,7 +1320,10 @@ function UI:Use(name, feature)
 		return value
 	end
 	local ok, value = pcall(function()
-		return type(feature) == "function" and feature(self, folder, own) or feature
+		if type(feature) == "function" then
+			return feature(self, folder, own)
+		end
+		return feature
 	end)
 	if not ok then
 		for i = #entry.owned, 1, -1 do pcall(dispose, entry.owned[i]) end
@@ -1348,7 +1392,14 @@ function UI:SetFeatureEnabled(name, enabled)
 	if set then
 		pcall(set, value, entry.enabled)
 	else
-		local fn = type(value) == "table" and (entry.enabled and (value.Start or value.start) or (value.Stop or value.stop))
+		local fn
+		if type(value) == "table" then
+			if entry.enabled then
+				fn = value.Start or value.start
+			else
+				fn = value.Stop or value.stop
+			end
+		end
 		if fn then
 			pcall(fn, value)
 		end
@@ -1388,7 +1439,10 @@ function UI:Exec(name, source, options)
 					end
 					loaded = chunk()
 				end
-				return type(loaded) == "function" and loaded(ctx) or loaded
+				if type(loaded) == "function" then
+					return loaded(ctx)
+				end
+				return loaded
 			end)
 		end)
 		if handle.cancelled then
@@ -1396,7 +1450,11 @@ function UI:Exec(name, source, options)
 			return
 		end
 		handle.status = ok and "loaded" or "failed"
-		handle.value, handle.error = ok and result or nil, ok and nil or result
+		if ok then
+			handle.value, handle.error = result, nil
+		else
+			handle.value, handle.error = nil, result
+		end
 		self:Log(ok and "info" or "error", "exec", name, handle.status, not ok and tostring(result) or "")
 		if not ok then
 			warn("[EasyUI] " .. tostring(result))
@@ -1536,7 +1594,7 @@ function UI:ExportConfig()
 			binds[tostring(bindId)] = widget.bindKey and packValue(widget.bindKey) or { __t = "n" }
 		end
 	end
-	return Http:JSONEncode({ version = 1, values = values, binds = binds, mounts = mounts, accent = packValue(Theme.Accent) })
+	return Http:JSONEncode({ version = 1, values = values, binds = binds, mounts = mounts, accent = packValue(self._accent) })
 end
 
 function UI:ImportConfig(json)
@@ -1754,6 +1812,12 @@ function UI:_pruneWidgets()
 	for flag in pairs(removedFlags) do
 		self._flagWidgets[flag] = nil
 	end
+	for i = #self._accentUpdaters, 1, -1 do
+		local entry = self._accentUpdaters[i]
+		if not (entry[1] and entry[1]:IsDescendantOf(self.gui)) then
+			table.remove(self._accentUpdaters, i)
+		end
+	end
 	self:_refreshBindHUD()
 end
 
@@ -1813,7 +1877,7 @@ local function addTab(m, scope, name)
 	local mark = new("Frame", {
 		Size = UDim2.new(1, -20, 0, 2),
 		Position = UDim2.new(0, 10, 1, -3),
-		BackgroundColor3 = Theme.Accent,
+		BackgroundColor3 = m._accent,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Parent = btn,
@@ -2081,6 +2145,7 @@ function UI:AttachESP(esp, o)
 		local generated = {}
 		for _, widget in ipairs(self.widgets) do generated[widget] = true end
 		for i = #self.ui.widgets, 1, -1 do if generated[self.ui.widgets[i]] then table.remove(self.ui.widgets, i) end end
+		self.ui._bindIndexDirty = true
 		for _, flag in ipairs(self.flags) do self.ui._flagWidgets[flag] = nil end
 		self.ui:Unmount(self.prefix)
 		self.ui._validators[self.prefix] = nil
@@ -2217,7 +2282,7 @@ function UI.Extend(name, value)
 end
 
 function UI._Sec:Badge(text, kind)
-	local col = Kind[kind] or Theme.Accent
+	local col = Kind[kind] or self._m._accent
 	local r = rowFrame(self._card, 20)
 	local function widthFor(t2)
 		return textWidth(tostring(t2), 11, Theme.Font) + 28
@@ -2267,7 +2332,7 @@ function UI._Sec:Toggle(o)
 		Size = UDim2.fromOffset(40, 22),
 		Position = UDim2.new(1, 0, 0.5, 0),
 		AnchorPoint = Vector2.new(1, 0.5),
-		BackgroundColor3 = state and Theme.Accent or Theme.Control,
+		BackgroundColor3 = state and self._m._accent or Theme.Control,
 		BorderSizePixel = 0,
 		Parent = r,
 	})
@@ -2292,7 +2357,7 @@ function UI._Sec:Toggle(o)
 			return
 		end
 		state = v
-		tw(track, E.Smooth, { BackgroundColor3 = state and Theme.Accent or Theme.Control })
+		tw(track, E.Smooth, { BackgroundColor3 = state and m0._accent or Theme.Control })
 		tw(knob, E.Snap, {
 			Position = state and UDim2.new(1, -3, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
 			AnchorPoint = Vector2.new(state and 1 or 0, 0.5),
@@ -2389,7 +2454,7 @@ function UI._Sec:Slider(o)
 		Parent = r,
 	})
 	corner(999, track)
-	local fill = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = track })
+	local fill = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = self._m._accent, BorderSizePixel = 0, Parent = track })
 	self._m._accentUpdaters[#self._m._accentUpdaters + 1] = { fill, function(c) fill.BackgroundColor3 = c end }
 	corner(999, fill)
 	local knob = new("Frame", {
@@ -2523,12 +2588,16 @@ function UI._Sec:Dropdown(o)
 	arrow.Position = UDim2.new(1, -22, 0, 0)
 	arrow.Size = UDim2.fromOffset(16, 30)
 	arrow.TextXAlignment = Enum.TextXAlignment.Center
-	local body = new("Frame", {
+	local body = new("ScrollingFrame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		Position = UDim2.new(0, 0, 0, 34),
 		BackgroundColor3 = Theme.Card,
 		BorderSizePixel = 0,
 		Visible = false,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = Theme.Stroke,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		CanvasSize = UDim2.new(),
 		Parent = holder,
 	})
 	corner(8, body)
@@ -2536,8 +2605,11 @@ function UI._Sec:Dropdown(o)
 	pad(4, body)
 	local bodyLayout = list(body, 3)
 	local function updHolder()
-		body.Size = UDim2.new(1, 0, 0, bodyLayout.AbsoluteContentSize.Y + 8)
-		holder.Size = UDim2.new(1, 0, 0, open and (34 + body.Size.Y.Offset) or 30)
+		local full = bodyLayout.AbsoluteContentSize.Y + 8
+		local shown = math.min(full, 180)
+		body.Size = UDim2.new(1, 0, 0, shown)
+		body.CanvasSize = UDim2.new(0, 0, 0, full)
+		holder.Size = UDim2.new(1, 0, 0, open and (34 + shown) or 30)
 	end
 	bodyLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updHolder)
 
@@ -2763,7 +2835,7 @@ end
 function UI._Sec:Colorpicker(o)
 	o = o or {}
 	local stored = o.flag and self._m:_read(o.flag)
-	local color = typeof(stored) == "Color3" and stored or o.default or Theme.Accent
+	local color = typeof(stored) == "Color3" and stored or o.default or self._m._accent
 	local r = rowFrame(self._card, 28)
 	local l = label(o.text or "Color", 13, Theme.Text, Theme.Font, r)
 	l.Size = UDim2.new(1, -40, 1, 0)
@@ -2788,7 +2860,18 @@ function UI._Sec:Colorpicker(o)
 		ZIndex = 70,
 		Parent = self._m.gui,
 	})
-	r.AncestryChanged:Connect(function(_, parent) if not parent and pop.Parent then pop:Destroy() end end)
+	r.AncestryChanged:Connect(function(_, parent)
+		if parent then
+			return
+		end
+		if self._m._openPicker == pop then
+			self._m._openPicker = nil
+			self._m._openPickerSw = nil
+		end
+		if pop.Parent then
+			pop:Destroy()
+		end
+	end)
 	corner(8, pop)
 	stroke(Theme.Stroke, 1, 0, pop)
 	pad(8, pop)
@@ -3026,7 +3109,7 @@ end)
 function UI:Notify(o)
 	o = o or {}
 	local dur = o.duration or 4
-	local col = Kind[o.kind] or Theme.Accent
+	local col = Kind[o.kind] or self._accent
 	if not self._toasts then
 		self._toasts = new("Frame", {
 			Size = UDim2.new(0, 290, 1, -32),
@@ -3301,7 +3384,7 @@ function UI:Preview(o)
 	part(Vector3.new(0.9, 2, 0.9), Vector3.new(0.5, -2, 0), Color3.fromRGB(60, 60, 66))
 	model.PrimaryPart = torso
 	local box = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(76, 150), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), Parent = holder })
-	local boxStroke = stroke(Theme.Accent, 1.5, 0, box)
+	local boxStroke = stroke(self._accent, 1.5, 0, box)
 	self._accentUpdaters[#self._accentUpdaters + 1] = { box, function(c) boxStroke.Color = c end }
 	corner(3, box)
 	local nm = label("Player", 11, Theme.Text, Theme.Bold, holder)
