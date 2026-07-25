@@ -574,7 +574,7 @@ Eight independent throttles plus a distance LOD. They are separate mechanisms, a
 
 So at 40 FPS with 30 players, `boxStep = 2` becomes `2 * 2.4 * 2.22 ≈ 11`. Set `perf.mode` to anything else (e.g. `"manual"`) to use the raw numbers verbatim. Note `_plan` scales only these three keys — the LOD thresholds, `frameSkip`, `npcBoxStep`, `npcFrameSkip`, `entityStep` and `cullMax` are never auto-scaled.
 
-**`frameSkip`** — skips whole frames: `frame % (frameSkip + 1) ~= 0` returns from `tick` immediately. This return happens **before `pool:begin()`/`pool:finish()`**, which is deliberate: skipped frames leave the pool's live/prev bookkeeping untouched, so nothing is hidden and the previous frame's drawings simply persist on screen. The cost is staleness, not flicker. It compounds with everything below, since the step counters key off `self.frame`, which only advances on frames that reach the check.
+**`frameSkip`** — skips whole frames: `frame % (frameSkip + 1) ~= 0` returns from `tick` immediately. This return happens **before `pool:begin()`/`pool:finish()`**, which is deliberate: skipped frames leave the pool's live/prev bookkeeping untouched, so nothing is hidden and the previous frame's drawings simply persist on screen. The cost is staleness, not flicker. It no longer compounds with the steps below: skipped frames do not advance the tick counter those gates key off, so total staleness is the largest single throttle rather than the product of all of them.
 
 **`boxStep`** — per-uid, phase-offset by uid (`(frame + uid + salt) % step == 0`), so recomputation is spread across frames rather than spiking. Between recomputes the cached 2D box is reused, so boxes lag slightly behind fast movement. A box is always computed on the first frame an entity has none.
 
@@ -900,7 +900,7 @@ The table you hand to `addEnt(id, spec)`. `addEnt` normalises five fields in pla
 | `col` | `Color3` | `cfg.box.col` at registration time | Used by every part of the entity overlay. Non-`Color3` values are replaced at registration. |
 | `outline` | boolean | `true` | The black backing rectangle behind the box. Only `false` disables it, and only the box has one — label, distance, dot, tracer and ring have no outline pass. |
 | `priority` | number | `cfg.priority.entity` (`2`) | Multiplied by `cfg.priority.scale` into `pool.zbias` for this group. |
-| `max` | number | `cfg.maxRange` (`3000`) | Distance cull, in studs. Compared directly, so **`0` culls everything** — there is no "unlimited" branch here. |
+| `max` | number | `cfg.maxRange` (`3000`) | Distance cull, in studs. `0` (or any value `<= 0`) means **unlimited**, matching the player path. The same applies to the `cfg.maxRange` fallback when `max` is unset. |
 | `size` | `Vector3` | `Vector3.new(3, 4, 3)` | Box dimensions, used **only** when `get` returns a `Vector3`. `BasePart` uses `Size`, `Model` uses `GetBoundingBox()`. |
 | `dot` | boolean | `nil` (off) | Filled 3px 12-sided dot at the bottom-centre of the box. |
 | `tracer` | boolean | `nil` (off) | 1px line from the bottom-centre of the screen to the bottom-centre of the box. Not configurable per group — it ignores `cfg.tracer`. |
@@ -1116,7 +1116,7 @@ end)
 
 **`0` means unlimited for ranges, but the two roster paths disagree.** The player path computes `reach = max(maxRange, espRange, radar.range)` after mapping each `<= 0` to infinity, so zeroing one still leaves the others in force. The NPC path (`EasyESP.luau:1743`) makes `reach` infinite if **either** `npc.maxRange` or `npc.espRange` is `<= 0`. Zeroing just one NPC range therefore uncaps the whole NPC roster. The per-draw cutoffs still use `espRange`/`npc.espRange` alone, and `0` there disables the cutoff.
 
-**Entity `max` has no unlimited branch.** `drawOne` compares `dist > (spec.max or cfg.maxRange)` directly, so with `cfg.maxRange = 0` and no `spec.max`, every entity is culled. Set `spec.max` explicitly when you zero the global range.
+**Entity `max` honours the unlimited convention.** `drawOne` treats `spec.max` (and the `cfg.maxRange` fallback) of `<= 0` as unlimited, so zeroing the global range no longer hides every entity group. Before the current version it compared directly and culled everything.
 
 **NPC snapshots hardcode `ally = false` and `friend = false`.** `cfg.npc.team`, `cfg.npc.friendTint`, and every ally/friend colour branch in the NPC path are permanently inert. NPCs are also skipped by the radar, the player list, the target selector and the threat banner.
 

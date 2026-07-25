@@ -1618,15 +1618,17 @@ end
 function ESP:_mkSnap(rec, char, root, head, hum, dist, boxStep, boxSalt, boxFn)
     local sx, sy, depth, on = self._proj(root.Position)
     local bx, by, bw, bh
+    local fresh = rec.boxAt and (self.frame - rec.boxAt) <= boxStep * 3
     if depth > 0 and (self:_turn(rec.uid, boxStep, boxSalt) or not rec.box) then
         rec.pivot, rec.size = boxFn()
         bx, by, bw, bh = box2d(rec.pivot, rec.size, self._proj)
         if bx then
             rec.box = { bx, by, bw, bh }
-        elseif rec.box then
+            rec.boxAt = self.frame
+        elseif rec.box and fresh then
             bx, by, bw, bh = rec.box[1], rec.box[2], rec.box[3], rec.box[4]
         end
-    elseif rec.box then
+    elseif rec.box and fresh then
         bx, by, bw, bh = rec.box[1], rec.box[2], rec.box[3], rec.box[4]
     end
     return {
@@ -2589,7 +2591,8 @@ function ESP:_ents()
         end
         if not (pos and size and pivot) then return end
         local dist = (eye - pos).Magnitude
-        if dist > (e.max or self.cfg.maxRange) then return end
+        local emax = e.max or self.cfg.maxRange
+        if emax > 0 and dist > emax then return end
         local _, _, d, on = self._proj(pos)
         if not on or d <= 0 then return end
         local lx, ly, bw, bh = box2d(pivot, size, self._proj)
@@ -2659,6 +2662,7 @@ function ESP:_clearCham(r)
         r.mat = nil
         r.matKind = nil
     end
+    r.matAt = nil
 end
 
 function ESP:_cham(s)
@@ -2696,7 +2700,14 @@ function ESP:_cham(s)
             self:_clearCham(r)
             r.matKind = cfg.mat
         end
-        if r.matAt and self.frame - r.matAt < 20 and r.matKind == cfg.mat then return end
+        if r.mat and r.matAt and self.frame - r.matAt < max(1, tonumber(self.cfg.perf.toolStep) or 14) then
+            for part in pairs(r.mat) do
+                if part.Parent then
+                    part.Color = c
+                end
+            end
+            return
+        end
         r.matAt = self.frame
         local map = r.mat or setmetatable({}, { __mode = "k" })
         r.mat = map
@@ -2814,27 +2825,33 @@ function ESP:tick(dt)
     end
 
     if not self.cfg.on then
-        self.pool:begin()
-        self.pool:reset()
-        self.pool:finish()
-        if self.world0 then
-            self:_worldRestore()
-        end
-        for _, r in pairs(self.recs) do
-            self:_clearCham(r)
-        end
-        for _, r in pairs(self.npcRecs) do
-            self:_clearCham(r)
+        if not self._idled then
+            self._idled = true
+            self.pool:begin()
+            self.pool:reset()
+            self.pool:finish()
+            if self.world0 then
+                self:_worldRestore()
+            end
+            for _, r in pairs(self.recs) do
+                self:_clearCham(r)
+            end
+            for _, r in pairs(self.npcRecs) do
+                self:_clearCham(r)
+            end
         end
         return
     end
+    self._idled = false
 
     self.t = self.t + dt
-    self.frame = self.frame + 1
+    self._ticks = (self._ticks or 0) + 1
 
-    if self.cfg.perf.frameSkip > 0 and (self.frame % (self.cfg.perf.frameSkip + 1)) ~= 0 then
+    if self.cfg.perf.frameSkip > 0 and (self._ticks % (self.cfg.perf.frameSkip + 1)) ~= 0 then
         return
     end
+
+    self.frame = self.frame + 1
 
     self.pool:begin()
     self.stats.drawn = 0
@@ -3754,7 +3771,7 @@ function ESP:statsGet()
         fpsAvg = self.stats.fpsAvg,
         drawn = self.stats.drawn,
         pool = self.pool.size,
-        roster = #self.snap,
+        roster = self.stats.roster,
         target = self.target and self.target.plr and self.target.plr.DisplayName or self.target and self.target.name or nil,
         ents = (function()
             local n = 0
