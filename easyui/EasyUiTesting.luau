@@ -228,9 +228,12 @@ end
 local function pathGet(root, path)
 	local value = root
 	for key in tostring(path):gmatch("[^.]+") do
-		value = type(value) == "table" and value[pathKey(value, key)] or nil
+		if type(value) ~= "table" then
+			return nil
+		end
+		value = value[pathKey(value, key)]
 		if value == nil then
-			break
+			return nil
 		end
 	end
 	return value
@@ -3103,6 +3106,7 @@ function UI:_ctxInit()
 		Size = UDim2.fromOffset(210, 40),
 		BackgroundColor3 = Theme.Panel,
 		BorderSizePixel = 0,
+		Active = true,
 		Visible = false,
 		ZIndex = 60,
 		Parent = self.gui,
@@ -3193,8 +3197,9 @@ function UI:_openContext(wd)
 		l.Size = UDim2.new(1, -80, 1, 0)
 		local b = new("TextButton", {
 			Text = "",
-			AutoButtonColor = false,
-			Size = UDim2.fromOffset(76, 22),
+		AutoButtonColor = false,
+		Modal = true,
+		Size = UDim2.fromOffset(76, 22),
 			Position = UDim2.new(1, 0, 0.5, 0),
 			AnchorPoint = Vector2.new(1, 0.5),
 			BackgroundColor3 = Theme.Control,

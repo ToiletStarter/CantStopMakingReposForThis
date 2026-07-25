@@ -1,32 +1,44 @@
+# CantStopMakingReposForThis
+
+Two single-file Roblox executor libraries. Built for Potassium and UNC-style executors; both degrade gracefully where APIs are missing.
+
+| Library | Folder | Purpose |
+| --- | --- | --- |
+| **EasyUI** | [`easyui/`](easyui/) | Menu framework — windows, tabs, widgets, context menus, managed runtime, config profiles. |
+| **EasyESP** | [`easyesp/`](easyesp/) | Drawing-based ESP engine — boxes, names, health, bones, chams, radar, entity tracking. |
+
+They are independent. Load either on its own, or attach the ESP to the UI with `UI:AttachESP` for an auto-generated settings panel.
+
+```lua
+local UI      = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyui/EasyUiTesting.luau"))()
+local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyesp/EasyESP.luau"))()
+```
+
+---
+
 # EasyUI
 
 A single-file Roblox executor UI library — menus, split windows, nested tabs, a full widget set, right-click context menus, a managed script runtime (priority queue, frame scheduler, budgeted batching, sandboxed-lifecycle `Exec`), config profiles, direct EasyESP hosting, media import, HUD modules, a custom cursor, a keybind list, a top-most overlay with a named layer priority system, input tools, and a verbose debug log.
 
-Built for Potassium and UNC-style executors; degrades gracefully where APIs are missing.
-
 ## Install
 
-Load the library:
-
 ```lua
-local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/EasyUiTesting.luau"))()
+local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyui/EasyUiTesting.luau"))()
 ```
 
 Or run the full example straight away:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/Example.luau"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyui/Example.luau"))()
 ```
 
 ## Documentation
 
-Full, detailed docs — every method, widget, option, and system — are in **[EasyUi_Documentation.md](EasyUi_Documentation.md)**.
+Full, detailed docs — every method, widget, option, and system — are in **[easyui/EasyUi_Documentation.md](easyui/EasyUi_Documentation.md)**.
 
 ## Quick start
 
 ```lua
-local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/EasyUiTesting.luau"))()
-
 local M = UI.new({
 	title = "My Menu",
 	toggleKey = Enum.KeyCode.RightShift,
@@ -92,7 +104,7 @@ end)
 ### Direct EasyESP (no bridge)
 
 ```lua
-local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/hold/refs/heads/main/esp"))()
+local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyesp/EasyESP.luau"))()
 local link = M:AttachESP(EasyESP.new(), { enabled = true, start = true, build = true, own = true })
 ```
 
@@ -134,3 +146,90 @@ M:OpenConsole()
 ## Security
 
 The library only creates and mutates **its own `ScreenGui`** and reads client-local services (input, tween, camera, marketplace name for the watermark). No remotes, no `workspace` writes, no other-player access. Configs are JSON only (no `loadstring`); filenames are sanitized. See the docs for the full breakdown.
+
+---
+
+# EasyESP
+
+A single-file `Drawing`-based ESP engine — 2D/3D/corner boxes, names, distance, health bars, bones, head dots, flag columns, tracers, off-screen arrows, a draggable radar, a player list, target and threat panels, `Highlight` chams, visibility raycasting, per-target LOD, and arbitrary entity/instance tracking.
+
+Requires `Drawing`, `setrenderproperty` and `cleardrawcache`; it errors on load without them.
+
+## Install
+
+```lua
+local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyesp/EasyESP.luau"))()
+```
+
+## Documentation
+
+Full reference — every config key, method, entity spec field and snapshot field — is in **[easyesp/EasyESP_Documentation.md](easyesp/EasyESP_Documentation.md)**.
+
+## Quick start
+
+```lua
+local esp = EasyESP.new()
+esp:on(true)
+esp:start()
+
+esp.cfg.box.on   = true
+esp.cfg.name.on  = true
+esp.cfg.hp.on    = true
+esp.cfg.maxRange = 0        -- 0 = unlimited
+
+esp:destroy()                -- full teardown
+```
+
+## NPCs and entities
+
+NPCs come from a source callback you supply. `cfg.npc` is an **independent deep copy** of the player config, so writing a root key does not affect NPCs.
+
+```lua
+esp:setNPCSource(function()
+	return workspace.AI.Walkers:GetChildren()
+end)
+esp:npc(true)
+esp.cfg.npc.box.on = true
+```
+
+Anything else — loot, vehicles, corpses — goes through `addEnt`:
+
+```lua
+esp:addEnt("loot", {
+	get     = function() return workspace.Lootables:GetChildren() end,
+	label   = "Loot",
+	box     = true,
+	name    = true,
+	dist    = true,
+	col     = Color3.fromRGB(255, 230, 80),
+	outline = false,
+})
+```
+
+## Custom flags
+
+Flags add text rows beside a target. The callback receives the target snapshot and returns `{ text, color }`.
+
+```lua
+esp:flag("holding", function(s)
+	if s.tool and s.tool ~= "" then
+		return { "HOLD: " .. s.tool, Color3.new(1, 1, 1) }
+	end
+end)
+esp:setFlagEnabled("holding", true)
+```
+
+## Highlights
+
+- **Targets:** players, callback-sourced NPCs, and unlimited `addEnt` entity groups, each with its own config tree.
+- **Drawing pool:** every visual is a reused, key-addressed `Drawing` with shadow-property diffing, idle pruning, and a `zbias` priority band system.
+- **Performance:** `perf.mode = "auto"` rescales box/visibility cadence from measured FPS; per-target work is staggered by uid so cost spreads across frames.
+- **UI bridge:** 65 self-describing descriptors let `UI:AttachESP` build a complete settings panel with validation, no glue code.
+- **Presets:** themes, performance profiles, feature packs and combined presets, all applied by name.
+
+## Gotchas
+
+- `cfg.npc` is a separate copy — set npc keys explicitly.
+- `esp.pool.noOutline = true` is the only global outline kill-switch.
+- `maxRange` / `espRange` treat `0` as unlimited, not "hide everything".
+- `perf.npcFrameSkip` throttles chams only; target drawing is per-frame by design, because skipping a draw pass makes the pool retire the visuals and strobe.
