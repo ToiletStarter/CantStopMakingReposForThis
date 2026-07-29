@@ -1,6 +1,6 @@
 # CantStopMakingReposForThis
 
-Two single-file Roblox executor libraries. Built for Potassium and UNC-style executors; both degrade gracefully where APIs are missing.
+Two single-file Roblox executor libraries. Built for Potassium and UNC-style executors; EasyUI degrades where optional APIs are missing, while EasyESP requires its Drawing APIs.
 
 | Library | Folder | Purpose |
 | --- | --- | --- |
@@ -8,6 +8,10 @@ Two single-file Roblox executor libraries. Built for Potassium and UNC-style exe
 | **EasyESP** | [`easyesp/`](easyesp/) | Drawing-based ESP engine — boxes, names, health, bones, chams, radar, entity tracking. |
 
 They are independent. Load either on its own, or attach the ESP to the UI with `UI:AttachESP` for an auto-generated settings panel.
+
+## Tags
+
+`roblox` `roblox-ui-library` `roblox-esp-library` `luau` `drawing-api` `roblox-overlay` `roblox-menu` `roblox-gui` `executor-ui`
 
 ```lua
 local UI      = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyui/EasyUiTesting.luau"))()
@@ -18,7 +22,7 @@ local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/Toile
 
 # EasyUI
 
-A single-file Roblox executor UI library — menus, split windows, nested tabs, a full widget set, right-click context menus, a managed script runtime (priority queue, frame scheduler, budgeted batching, sandboxed-lifecycle `Exec`), config profiles, direct EasyESP hosting, media import, HUD modules, a custom cursor, a keybind list, a top-most overlay with a named layer priority system, input tools, and a verbose debug log.
+A single-file Roblox executor UI library — menus, split windows, nested tabs, a full widget set, right-click context menus, a managed script runtime (priority queue, frame scheduler, budgeted batching, lifecycle-managed `Exec`), config profiles, direct EasyESP hosting, media import, HUD modules, a custom cursor, a keybind list, a top-most overlay with a named layer priority system, input tools, and a verbose debug log.
 
 ## Install
 
@@ -101,7 +105,7 @@ M:Exec("myfeature", function(ctx)
 end)
 ```
 
-### Direct EasyESP (no bridge)
+### Attached EasyESP
 
 ```lua
 local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyesp/EasyESP.luau"))()

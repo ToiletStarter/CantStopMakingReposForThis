@@ -1231,13 +1231,15 @@ function ESP.new(opt)
                 link:detach()
             end)
         end
-        pcall(function()
-            if old.destroy then
-                old:destroy()
-            elseif old.Destroy then
-                old:Destroy()
-            end
-        end)
+        if Runtime.esp == old then
+            pcall(function()
+                if old.destroy then
+                    old:destroy()
+                elseif old.Destroy then
+                    old:Destroy()
+                end
+            end)
+        end
     end
 
     local self = setmetatable({}, ESP)

@@ -310,11 +310,14 @@ local tools = M:Window("Tools", {
 	x = 720, y = 140,
 	width = 400, height = 320,
 	style = "panel",         -- "window" | "panel" | "card" (theme background)
-	header = "Runtime Tools",-- string, table { text = ... }, or false for a bare drag strip
+	header = "Runtime Tools",-- string, table { text = ... }, or false for an untitled drag strip
 	open = false,            -- start hidden
 	flag = "windows.tools",  -- persist position/size/open state in configs
 	close = true,            -- show a close button
 	animation = true,
+	resizable = true,        -- default true
+	minWidth = 320, maxWidth = 960,
+	minHeight = 240, maxHeight = 720,
 })
 
 local sec = tools:Tab("Runtime"):Section("Jobs")
@@ -328,7 +331,7 @@ M:Tab("Windows"):Section("Split"):Button({
 
 Window methods: `Open`, `Close`, `SetVisible(v)`, `GetVisible`, `GetFrame`, `GetState`, `Set(state)`, `Destroy`, plus `Tab`/`SubTab`. Window lookups on the UI: `M:GetWindow(id)`, `M:OpenWindow(id)`, `M:CloseWindow(id)`.
 
-Split windows hide with the main menu and reappear only if they were open. `M:Window(id)` called again returns the existing window (options ignored).
+Split windows hide with the main menu and reappear only if they were open. Resize them with the bottom-right grip; flagged windows save the resulting size. `M:Window(id)` called again returns the existing window (options ignored).
 
 ---
 
@@ -490,7 +493,7 @@ M:HUD("Compass", { width = 260 })   -- built-in; draggable, follows hud drag rul
 
 ## Direct EasyESP hosting
 
-No separate bridge. `AttachESP` mounts `esp.cfg`, validates writes with the descriptor system, builds the controls from ESP descriptors, and starts ESP.
+`AttachESP` mounts `esp.cfg`, validates writes with the descriptor system, builds the controls from ESP descriptors, and starts ESP. Its link is registered with EasyESP so recreating either side detaches generated controls before the old instance is destroyed.
 
 ```lua
 local EasyESP = loadstring(game:HttpGet(".../esp"))()
@@ -683,7 +686,7 @@ Registration is also available as `UI.RegisterWidget`, `UI.RegisterHUD`, `UI.Reg
 ## Window behavior
 
 - **Drag:** grab the title bar (or any HUD element per the rules below). Dragging is smoothed with a short lerp so the window glides rather than snaps. While dragging the main or split windows, **centering guides** appear when a window's center aligns with the screen center (it snaps), and a live **x, y** coordinate readout follows the window.
-- **Resize:** drag the dotted grip in the bottom-right corner (disable with `resizable = false`; clamp with `min/maxWidth/Height`).
+- **Resize:** drag the dotted grip in the bottom-right corner with mouse or touch (disable with `resizable = false`; clamp with `minWidth`, `maxWidth`, `minHeight`, and `maxHeight`).
 - **Open/close animation:** the window scales out of its top-left corner (Apple genie style) — tiny to full on show, full to tiny on the toggle key. The **minimize button** uses a distinct collapse (a slight tilt + shrink to nothing) so you can tell how it was closed.
 - **Top-most:** the `ScreenGui` uses the maximum `DisplayOrder`, so the menu is always above other GUIs.
 - **HUD elements** (watermark, keybind HUD, compass): to prevent accidental nudging, they only drag with **left-click while the menu is open**, and with **middle-click when the menu is closed**.
@@ -753,7 +756,7 @@ The UI logs its own lifecycle (create, close, feature add/remove, `Exec` results
 
 ## Limitations & security
 
-**What the UI touches.** The library only creates and mutates **its own `ScreenGui`** and reads client-local services (input, tween, camera, `MarketplaceService:GetProductInfo` for the watermark name). It sends no remotes, never writes to `workspace`, and never reads or writes other players. When it needs a 3D preview it builds a dummy **inside a `ViewportFrame`** — never in the world. Configs are JSON only (no `loadstring`), and filenames are sanitized against path traversal.
+**What the UI touches.** EasyUI itself only creates and mutates **its own `ScreenGui`** and reads client-local services (input, tween, camera, `MarketplaceService:GetProductInfo` for the watermark name). It sends no remotes, never writes to `workspace`, and never reads or writes other players. `AttachESP` can start and configure the supplied ESP instance, whose effects are documented separately. When the UI needs a 3D preview it builds a dummy **inside a `ViewportFrame`** — never in the world. Configs are JSON only (no `loadstring`), and filenames are sanitized against path traversal.
 
 **`Exec` is a script loader, not a sandbox.** `Exec`/`ImportFeature`/`ImportHUD` run whatever you give them (function, `ModuleScript`, code string, or URL via `HttpGet`+`loadstring`). The `ctx` handed to a loaded script exposes the full UI, so **only run code you trust** — the UI gives it a clean, owned lifecycle (auto-cleanup, scheduling, windows), not isolation. True Lua sandboxing isn't possible against executor-level identity.
 

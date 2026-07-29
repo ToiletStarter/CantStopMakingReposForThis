@@ -427,6 +427,36 @@ local function draggable(ui, handle, target, finished, opts)
 	end)
 end
 
+local function resizeGrip(ui, target, opts, finished)
+	opts = opts or {}
+	if opts.resizable == false then
+		return
+	end
+	local minWidth = tonumber(opts.minWidth) or 420
+	local maxWidth = math.max(minWidth, tonumber(opts.maxWidth) or 960)
+	local minHeight = tonumber(opts.minHeight) or 300
+	local maxHeight = math.max(minHeight, tonumber(opts.maxHeight) or 720)
+	local grip = new("TextButton", { Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(18, 18), Position = UDim2.new(1, -2, 1, -2), AnchorPoint = Vector2.new(1, 1), BackgroundTransparency = 1, ZIndex = 6, Parent = target })
+	for _, off in ipairs({ { -3, -3 }, { -8, -3 }, { -3, -8 } }) do
+		local dot = new("Frame", { Size = UDim2.fromOffset(3, 3), AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, off[1], 1, off[2]), BackgroundColor3 = Theme.Muted, BorderSizePixel = 0, Parent = grip })
+		corner(999, dot)
+	end
+	grip.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local start = Input:GetMouseLocation()
+		local baseSize = target.Size
+		beginDrag(ui, function(mouse)
+			local delta = mouse - start
+			target.Size = UDim2.fromOffset(
+				math.clamp(baseSize.X.Offset + delta.X, minWidth, maxWidth),
+				math.clamp(baseSize.Y.Offset + delta.Y, minHeight, maxHeight)
+			)
+		end, finished)
+	end)
+end
+
 local function mountGui()
 	local g = new("ScreenGui", {
 		Name = "EasyUI_" .. tostring(math.random(1e5, 9e5)),
@@ -665,24 +695,7 @@ function UI.new(o)
 	})
 	self._holder = content
 
-	if o.resizable ~= false then
-		local grip = new("TextButton", { Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(18, 18), Position = UDim2.new(1, -2, 1, -2), AnchorPoint = Vector2.new(1, 1), BackgroundTransparency = 1, ZIndex = 6, Parent = win })
-		for _, off in ipairs({ { -3, -3 }, { -8, -3 }, { -3, -8 } }) do
-			local d = new("Frame", { Size = UDim2.fromOffset(3, 3), AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, off[1], 1, off[2]), BackgroundColor3 = Theme.Muted, BorderSizePixel = 0, Parent = grip })
-			corner(999, d)
-		end
-		grip.MouseButton1Down:Connect(function()
-			local start = Input:GetMouseLocation()
-			local baseSize = win.Size
-			beginDrag(self, function(m)
-				local delta = m - start
-				win.Size = UDim2.fromOffset(
-					math.clamp(baseSize.X.Offset + delta.X, o.minWidth or 420, o.maxWidth or 960),
-					math.clamp(baseSize.Y.Offset + delta.Y, o.minHeight or 300, o.maxHeight or 720)
-				)
-			end)
-		end)
-	end
+	resizeGrip(self, win, o)
 
 	local wm = new("Frame", {
 		Size = UDim2.fromOffset(200, 28),
@@ -1983,7 +1996,12 @@ function UI:Window(id, o)
 	if old then
 		return old
 	end
-	local w, h = o.width or 360, o.height or 320
+	local minWidth = tonumber(o.minWidth) or 280
+	local maxWidth = math.max(minWidth, tonumber(o.maxWidth) or 960)
+	local minHeight = tonumber(o.minHeight) or 220
+	local maxHeight = math.max(minHeight, tonumber(o.maxHeight) or 720)
+	local w = math.clamp(o.width or 360, minWidth, maxWidth)
+	local h = math.clamp(o.height or 320, minHeight, maxHeight)
 	local frame = new("Frame", {
 		Name = id,
 		Size = UDim2.fromOffset(w, h),
@@ -1997,13 +2015,19 @@ function UI:Window(id, o)
 	stroke(Theme.Stroke, 1, 0.1, frame)
 	local scale = new("UIScale", { Scale = 1, Parent = frame })
 	local bar = new("Frame", { Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, Parent = frame })
-	local title = label(type(o.header) == "table" and o.header.text or o.header or id, 13, Theme.Text, Theme.Bold, bar)
+	local header = o.header == false and "" or type(o.header) == "table" and o.header.text or o.header or id
+	local title = label(header, 13, Theme.Text, Theme.Bold, bar)
 	title.Position = UDim2.new(0, 14, 0, 0)
 	title.Size = UDim2.new(1, -50, 1, 0)
 	local strip = makeStrip(frame, 40, 12)
 	local content = new("Frame", { Size = UDim2.new(1, 0, 1, -76), Position = UDim2.new(0, 0, 0, 76), BackgroundTransparency = 1, ClipsDescendants = true, Parent = frame })
-	local window = setmetatable({ _m = self, id = id, flag = o.flag, frame = frame, scale = scale, _strip = strip, _holder = content, tabs = {}, open = o.open ~= false }, UI._Window)
+	local window = setmetatable({ _m = self, id = id, flag = o.flag, frame = frame, scale = scale, _strip = strip, _holder = content, tabs = {}, open = o.open ~= false, minWidth = minWidth, maxWidth = maxWidth, minHeight = minHeight, maxHeight = maxHeight }, UI._Window)
 	self._windows[id] = window
+	resizeGrip(self, frame, { resizable = o.resizable, minWidth = minWidth, maxWidth = maxWidth, minHeight = minHeight, maxHeight = maxHeight }, function()
+		if o.flag then
+			self:_write(o.flag, window:GetState())
+		end
+	end)
 	draggable(self, bar, frame, function()
 		if o.flag then
 			self:_write(o.flag, window:GetState())
@@ -2061,8 +2085,11 @@ end
 function UI._Window:Get() return self:GetState() end
 function UI._Window:Set(state)
 	if type(state) ~= "table" then return end
-	self.frame.Position = UDim2.fromOffset(state.x or self.frame.Position.X.Offset, state.y or self.frame.Position.Y.Offset)
-	self.frame.Size = UDim2.fromOffset(state.width or self.frame.Size.X.Offset, state.height or self.frame.Size.Y.Offset)
+	self.frame.Position = UDim2.fromOffset(tonumber(state.x) or self.frame.Position.X.Offset, tonumber(state.y) or self.frame.Position.Y.Offset)
+	self.frame.Size = UDim2.fromOffset(
+		math.clamp(tonumber(state.width) or self.frame.Size.X.Offset, self.minWidth, self.maxWidth),
+		math.clamp(tonumber(state.height) or self.frame.Size.Y.Offset, self.minHeight, self.maxHeight)
+	)
 	self:SetVisible(state.open ~= false)
 end
 function UI._Window:Destroy()
@@ -2088,7 +2115,11 @@ function UI:AttachESP(esp, o)
 	self._validators[prefix] = esp.Validate and function(path, value) return esp:Validate(path, value) end or nil
 	local link = { ui = self, esp = esp, prefix = prefix, tabs = {}, flags = {}, widgets = {}, own = o.own == true }
 	if o.enabled ~= false and esp.on then esp:on(true) end
-	if o.start ~= false and esp.start then esp:start() link.started = true end
+	if o.start ~= false and esp.start then
+		local wasRunning = esp.running == true
+		esp:start()
+		link.started = not wasRunning
+	end
 	if o.build ~= false and esp.GetDescriptors then
 		local nodes, sections, windows = {}, {}, {}
 		local function node(scope, parent, key)
@@ -2149,11 +2180,16 @@ function UI:AttachESP(esp, o)
 		for _, flag in ipairs(self.flags) do self.ui._flagWidgets[flag] = nil end
 		self.ui:Unmount(self.prefix)
 		self.ui._validators[self.prefix] = nil
+		local env = typeof(getgenv) == "function" and getgenv() or _G
+		if env.__EASY_STACK and env.__EASY_STACK.bridge == self then env.__EASY_STACK.bridge = nil end
 		if self.own and self.esp.destroy then self.esp:destroy() elseif self.started and o.stopOnDetach and self.esp.stop then self.esp:stop() end
 		if self.ui._espLink == self then self.ui._espLink = nil end
 		return true
 	end
 	self._espLink = link
+	local env = typeof(getgenv) == "function" and getgenv() or _G
+	env.__EASY_STACK = env.__EASY_STACK or {}
+	env.__EASY_STACK.bridge = link
 	link:sync()
 	return link
 end

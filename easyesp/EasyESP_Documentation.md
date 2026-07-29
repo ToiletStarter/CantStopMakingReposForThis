@@ -1028,13 +1028,13 @@ esp:setFlagEnabled("spd", false)
 
 ### `UI:AttachESP(esp, opts)`
 
-The sibling EasyUI library builds its whole ESP panel from that array (`EasyUiTesting.luau:2018`). The handshake:
+The sibling EasyUI library builds its whole ESP panel from that array. The handshake:
 
 1. Asserts only that `esp` is a table with a table `cfg`. Every ESP method it touches afterwards is nil-guarded (`esp.Validate and …`, `if esp.on then`, `o.build ~= false and esp.GetDescriptors`, `esp.save and esp:save(name)`, and so on), so a partial or stubbed ESP object degrades instead of erroring.
 2. Detaches any previous `_espLink`.
 3. `UI:Mount(prefix, esp.cfg)` (`prefix` defaults to `"esp"`) points the flag namespace at the **live** config table, so widget writes land on `esp.cfg` directly and `esp:import()`/`esp:load()` survive because `import` refills that same table in place rather than replacing it.
 4. Registers a validator for the namespace that calls `esp:Validate(path, value)` method-style, so every widget write is coerced by the descriptor rules before it reaches the config.
-5. `opts.enabled ~= false` → `esp:on(true)`; `opts.start ~= false` → `esp:start()` (recorded as `link.started`).
+5. `opts.enabled ~= false` → `esp:on(true)`; `opts.start ~= false` → `esp:start()`. `link.started` is true only when the link started a previously stopped loop.
 6. `opts.build ~= false` → iterates `esp:GetDescriptors()` (no prefix) and, per entry, resolves window → tab → subtab → section, then creates one widget with `text = label or path`, `flag = prefix .. "." .. path`, `default = pathGet(esp.cfg, path)` (the instance's current value, not `d.default`), `min`/`max`/`step`/`decimals`, `options = d.items`, `noKeybind = d.bindable == false`. Kind maps to `Toggle`, `Slider`, `Dropdown` (for `dropdown` and `mode`), `Colorpicker`, `Keybind`; an unmapped kind is skipped silently.
 7. Returns a `link` with `sync()`, `SetEnabled(bool)`, `applyTheme(name)`, `applySetup(name)` (calls `esp:preset`), `save(name)`, `load(name)` and `detach()`. `detach` destroys the generated tabs, windows, widgets and flags, unmounts the namespace, clears the validator, and then either `esp:destroy()` (when `opts.own`) or `esp:stop()` (when it started the loop and `opts.stopOnDetach` is set).
 
@@ -1044,7 +1044,7 @@ Relevant options: `prefix`, `own`, `enabled`, `start`, `stopOnDetach`, `build`, 
 local link = UI:AttachESP(esp, { prefix = "esp", singleWindow = true, own = true })
 ```
 
-Two consequences worth planning around. Because there are no `npc.*` descriptors, the generated panel covers players only — NPC settings need hand-built widgets bound to `esp.cfg.npc.*` paths. And `ESP.new` looks for `getgenv().__EASY_STACK.bridge` to detach a live UI link before destroying the previous instance, but this EasyUI build never publishes itself there, so that mutual-detach path does not fire; re-running a script leaves the old panel bound to a destroyed instance unless you call `link:detach()` yourself.
+Because there are no `npc.*` descriptors, the generated panel covers players only — NPC settings need hand-built widgets bound to `esp.cfg.npc.*` paths. EasyUI publishes the returned link at `getgenv().__EASY_STACK.bridge`; recreating the ESP detaches that link before destroying the old instance, and `link:detach()` clears it when it still owns the slot.
 
 ---
 
