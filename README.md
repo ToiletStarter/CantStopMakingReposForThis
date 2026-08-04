@@ -6,16 +6,18 @@ Two single-file Roblox executor libraries. Built for Potassium and UNC-style exe
 | --- | --- | --- |
 | **EasyUI** | [`easyui/`](easyui/) | Menu framework — windows, tabs, widgets, context menus, managed runtime, config profiles. |
 | **EasyESP** | [`easyesp/`](easyesp/) | Drawing-based ESP engine — boxes, names, health, bones, chams, radar, entity tracking. |
+| **EasyAim** | [`easyaim/`](easyaim/) | Adapter-driven aim engine — legit smoothing, rage snapping, silent aim, prediction, triggerbot, FOV. |
 
-They are independent. Load either on its own, or attach the ESP to the UI with `UI:AttachESP` for an auto-generated settings panel.
+They are independent. Load any on its own, or attach the ESP to the UI with `UI:AttachESP` for an auto-generated settings panel. EasyAim exposes the same descriptor shape, so a UI panel can be generated from `EasyAim.GetDescriptors()`.
 
 ## Tags
 
-`roblox` `roblox-ui-library` `roblox-esp-library` `luau` `drawing-api` `roblox-overlay` `roblox-menu` `roblox-gui` `executor-ui`
+`roblox` `roblox-ui-library` `roblox-esp-library` `roblox-aimbot-library` `luau` `drawing-api` `roblox-overlay` `roblox-menu` `roblox-gui` `executor-ui`
 
 ```lua
 local UI      = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyui/EasyUiTesting.luau"))()
 local EasyESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyesp/EasyESP.luau"))()
+local EasyAim = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyaim/EasyAim.luau"))()
 ```
 
 ---
@@ -237,3 +239,54 @@ esp:setFlagEnabled("holding", true)
 - `esp.pool.noOutline = true` is the only global outline kill-switch.
 - `maxRange` / `espRange` treat `0` as unlimited, not "hide everything".
 - `perf.npcFrameSkip` throttles chams only; target drawing is per-frame by design, because skipping a draw pass makes the pool retire the visuals and strobe.
+
+---
+
+# EasyAim
+
+An adapter-driven aim library. Target selection, hitbox resolution, prediction, legit smoothing, rage snapping, silent-aim resolution, a triggerbot and an FOV circle. Game-specific details live in a small adapter table, so a new game is a handful of functions rather than a rewrite.
+
+## Install
+
+```lua
+local EasyAim = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyaim/EasyAim.luau"))()
+```
+
+## Quick start
+
+```lua
+local aim = EasyAim.new({
+    mode = "legit",
+    key = Enum.UserInputType.MouseButton2,
+    hitbox = { kind = "Head" },
+    fov = { on = true, radius = 140 },
+})
+aim:on(true)
+aim:start()
+```
+
+## Adapters
+
+An adapter tells EasyAim how to read a game. `setAdapter` merges over the default, so you only override what differs.
+
+```lua
+aim:setAdapter({
+    targets = function() return workspace.Entities:GetChildren() end,
+    root    = function(m) return m:FindFirstChild("Root") end,
+    health  = function(m) return m:GetAttribute("HP") or 0, 100 end,
+})
+```
+
+Built-in adapters: `Default` (Players / Humanoid / Team) and `Attribute` (Health / MaxHealth / Dead / SquadName attributes).
+
+## Silent aim
+
+`silent` mode computes the point and leaves delivery to you:
+
+```lua
+local pos = aim:aimPosition()
+```
+
+## Documentation
+
+Full reference: [`easyaim/EasyAim_Documentation.md`](easyaim/EasyAim_Documentation.md)

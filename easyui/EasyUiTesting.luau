@@ -1300,7 +1300,7 @@ function UI:Queue(name, priority, callback)
 					self._queued[nextJob.name] = nil
 				end
 				if not nextJob.cancelled then
-					local done, ok, err = false
+					local done, ok, err = false, nil, nil
 					nextJob.thread = task.spawn(function()
 						ok, err = pcall(nextJob.fn)
 						done = true
@@ -3132,7 +3132,7 @@ UI.RegisterHUD("Compass", function(ui, o, _, own)
 		local camera = workspace.CurrentCamera
 		if not camera then return end
 		local look = camera.CFrame.LookVector
-		local degrees = (math.deg(math.atan(-look.X, -look.Z)) + 360) % 360
+		local degrees = (math.deg(math.atan2(-look.X, -look.Z)) + 360) % 360
 		local index = math.floor((degrees + 22.5) / 45) % 8 + 1
 		text.Text = ({ "N", "NE", "E", "SE", "S", "SW", "W", "NW" })[index] .. ("  %03d°"):format(math.floor(degrees + 0.5) % 360)
 	end, o.priority or 10))

@@ -1,5 +1,5 @@
-if not Drawing or not setrenderproperty or not cleardrawcache then
-    error("EasyESP needs Drawing, setrenderproperty, and cleardrawcache", 2)
+if not Drawing or not setrenderproperty then
+    error("EasyESP needs Drawing and setrenderproperty", 2)
 end
 
 local Players = game:GetService("Players")
@@ -1461,29 +1461,30 @@ function ESP:_flags()
         if s.vis == nil then
             return nil
         end
-        return s.vis and { "VIS", self.cfg.friendCol:Lerp(self.cfg.box.hpFull, 0.55) } or { "HID", self.cfg.box.hpLow }
+        local cfg = s.cfg or self.cfg
+        return s.vis and { "VIS", cfg.friendCol:Lerp(cfg.box.hpFull, 0.55) } or { "HID", cfg.box.hpLow }
     end)
     self:flag("hp", function(s)
         if s.maxHp > 0 then
-            return { tostring(floor(s.hp + 0.5)) .. "hp", self.cfg.flags.col }
+            return { tostring(floor(s.hp + 0.5)) .. "hp", (s.cfg or self.cfg).flags.col }
         end
     end)
     self:flag("tool", function(s)
         if s.tool and s.tool ~= "" then
-            return { s.tool, self.cfg.flags.col }
+            return { s.tool, (s.cfg or self.cfg).flags.col }
         end
     end)
     self:flag("spd", function(s)
         if s.root then
             local v = floor(s.root.AssemblyLinearVelocity.Magnitude + 0.5)
             if v > 2 then
-                return { tostring(v), self.cfg.friendCol }
+                return { tostring(v), (s.cfg or self.cfg).friendCol }
             end
         end
     end)
     self:flag("friend", function(s)
         if s.friend then
-            return { "FRIEND", self.cfg.friendCol }
+            return { "FRIEND", (s.cfg or self.cfg).friendCol }
         end
     end)
 end
@@ -1744,7 +1745,9 @@ function ESP:_snapNPC(out, eye)
     if not ok or type(list) ~= "table" then
         return
     end
-    local reach = ((ncfg.maxRange or 0) <= 0 or (ncfg.espRange or 0) <= 0) and huge or max(ncfg.maxRange, ncfg.espRange)
+    local maxRange = (ncfg.maxRange or 0) <= 0 and huge or ncfg.maxRange
+    local visualRange = (ncfg.espRange or 0) <= 0 and huge or ncfg.espRange
+    local reach = max(maxRange, visualRange)
     local needVis = ncfg.vis.check or ncfg.vis.hide or ncfg.vis.tint or (ncfg.chams.on and ncfg.chams.tint)
     local recs = self.npcRecs
     local seen = self._npcSeen or {}
@@ -2609,8 +2612,11 @@ function ESP:_ents()
             self.pool:dot("ent_d" .. id, lx + bw * 0.5, ly + bh, 3, e.col, true, 1, 12)
         end
         if e.name and e.label then
-            local label = type(e.label) == "function" and e.label(obj) or e.label
-            if label and label ~= "" then
+            local ok, label = true, e.label
+            if type(e.label) == "function" then
+                ok, label = pcall(e.label, obj)
+            end
+            if ok and label and label ~= "" then
                 self.pool:txt("ent_n" .. id, tostring(label), lx + bw * 0.5, ly - 16, 12, e.col, true, FONT, true)
             end
         end
@@ -2631,8 +2637,8 @@ function ESP:_ents()
     local pri = self.cfg.priority
     for id, e in pairs(self.ents) do
         self.pool.zbias = pri and ((e.priority or pri.entity or 1) * (pri.scale or 100)) or 0
-        local obj = e.get()
-        if obj then
+        local ok, obj = pcall(e.get)
+        if ok and obj then
             if typeof(obj) == "table" then
                 for i = 1, #obj do
                     drawOne(id .. "_" .. i, e, obj[i])
@@ -3812,7 +3818,28 @@ function ESP:import(str)
         return false
     end
     local nextCfg = unpack(data.cfg)
-    fill(nextCfg, defaults())
+    if type(nextCfg) ~= "table" then
+        return false
+    end
+    local base = defaults()
+    fill(nextCfg, base)
+    local function validShape(value, expected)
+        if type(expected) ~= "table" then
+            return typeof(value) == typeof(expected)
+        end
+        if type(value) ~= "table" then
+            return false
+        end
+        for key, child in pairs(expected) do
+            if not validShape(value[key], child) then
+                return false
+            end
+        end
+        return true
+    end
+    if not validShape(nextCfg, base) then
+        return false
+    end
     local cur = self.cfg or {}
     for k in pairs(cur) do
         cur[k] = nil
