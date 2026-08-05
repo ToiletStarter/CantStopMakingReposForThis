@@ -12,6 +12,7 @@ Single-file Roblox executor libraries. Built for Potassium and UNC-style executo
 | **EasyAntiAim** | [`easyantiaim/`](easyantiaim/) | Anti-aim — angle manipulation, yaw jitter, fake lag, desync, hitbox hiding. |
 | **EasyCombat** | [`easycombat/`](easycombat/) | Combat helper on top of EasyAim — magic bullet, bullet TP, gun-system bridging. |
 | **EasyCap** | [`easycap/`](easycap/) | Capability probe — detects which executor APIs exist so features can degrade instead of erroring. |
+| **EasyBudget** | [`easybudget/`](easybudget/) | Remote rate budgeting — sliding-window token buckets, pacer with round-robin, per-remote limits and headroom. |
 
 They are independent. Load any on its own, or attach the ESP to the UI with `UI:AttachESP` for an auto-generated settings panel. EasyAim exposes the same descriptor shape, so a UI panel can be generated from `EasyAim.GetDescriptors()`.
 
@@ -25,6 +26,7 @@ local Stack   = loadstring(game:HttpGet(BASE .. "easystack/EasyStack.luau"))()
 local UI      = loadstring(game:HttpGet(BASE .. "easyui/EasyUiTesting.luau"))()
 local EasyESP = loadstring(game:HttpGet(BASE .. "easyesp/EasyESP.luau"))()
 local EasyWorld = loadstring(game:HttpGet(BASE .. "easyworld/EasyWorld.luau"))()
+local EasyBudget = loadstring(game:HttpGet(BASE .. "easybudget/EasyBudget.luau"))()
 local EasyAim = loadstring(game:HttpGet(BASE .. "easyaim/EasyAim.luau"))()
 ```
 
@@ -586,6 +588,67 @@ Probe before you load: EasyESP hard-errors without `Drawing`, `setrenderproperty
 
 ---
 
+# EasyBudget
+
+A remote rate budgeting library. Most games rate-limit their remotes and report you to a detection service when you exceed the limit. EasyBudget is a sliding-window token bucket per remote, plus a pacer that spaces calls and round-robins across targets, so a feature stays inside the game's own limits by construction.
+
+It is pure Lua — no `game:GetService`, no Roblox API — so it loads anywhere.
+
+## Install
+
+```lua
+local EasyBudget = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easybudget/EasyBudget.luau"))()
+```
+
+## Documentation
+
+Full reference — every method, the pacer, presets, recipes — is in **[easybudget/EasyBudget_Documentation.md](easybudget/EasyBudget_Documentation.md)**.
+
+## Quick start
+
+```lua
+local budget = EasyBudget.new({ headroom = 0.8 })
+budget:loadPreset("bedwars")
+
+if budget:consume("SwordHit") then
+    swordRemote:FireServer(payload)
+end
+```
+
+## The pacer
+
+A bucket permits bursts (300 calls in one second, then silence). A pacer additionally enforces a minimum gap derived from the bucket's own rate, and can rotate targets for a multi-target aura — the correct shape for a killaura, since the budget is per remote, not per target.
+
+```lua
+local pacer = budget:pacer("SwordHit", { jitter = 0.12 })
+
+RunService.Heartbeat:Connect(function()
+    local target = pacer:cycle(getValidTargets())
+    if target then
+        attack(target)
+    end
+end)
+```
+
+## Presets
+
+`bedwars` transcribes the limits from the decompiled remote definitions and marks the four remotes that are exempt from the server's detection counter (`SwordSwingMiss`, `SwordChargeState`, `ProjectileHit`, `SetInvItem`). Anything undefined falls back to a 300/min default.
+
+## Highlights
+
+- **Headroom** — `headroom = 0.8` caps usage at 80% of the real limit, leaving room for the game's own traffic on the same bucket.
+- **Bounded memory** — the sliding window compacts old timestamps, so memory stays flat regardless of runtime.
+- **Stats and reports** — `budget:stats()` / `budget:report()` give live usage, denial counts and per-second rates for a debug panel.
+- **`guard` / `wrap`** — drop-in rate-limited wrappers around existing send functions.
+
+## Gotchas
+
+- The budget is **per remote, not per target**. Hitting 5 enemies spends 5 tokens from one bucket. Looping targets and firing each is exactly the bug this exists to prevent.
+- Exempt does not mean safe. The exempt remotes skip the detection counter but still log a rate-limit analytics event against your UserId.
+- `consume` returning `false` is the normal "skip this tick" signal, not an error. Do not retry in a tight loop.
+
+---
+
 ## Building a game script with the stack
 
 The pattern used across published scripts:
@@ -595,9 +658,10 @@ The pattern used across published scripts:
 3. **Register** each library into EasyStack so `unload` can find them all.
 4. **Wire ESP sources** — `setNPCSource` for AI, `addEnt` for loot/objectives, `flag` for per-target text.
 5. **Add world visuals** with EasyWorld for anything that belongs in 3D space — range rings, target bubbles, placement previews — rather than faking depth with 2D drawings.
-6. **Drive every loop** through `M:Schedule` / `M:Every` (never a bare `RunService` connection) so the UI owns cleanup.
-7. **Attach the ESP panel** with `M:AttachESP(esp, { build = true, singleWindow = true })` instead of hand-building controls.
-8. **Expose `Session.unload`** and stash it in `getgenv()` so re-running the script cleanly replaces the old instance.
+6. **Gate every remote send** through EasyBudget so automation cannot outrun the game's rate limiter. A breached limit increments the server's detection counter; a paced one does not.
+7. **Drive every loop** through `M:Schedule` / `M:Every` (never a bare `RunService` connection) so the UI owns cleanup.
+8. **Attach the ESP panel** with `M:AttachESP(esp, { build = true, singleWindow = true })` instead of hand-building controls.
+9. **Expose `Session.unload`** and stash it in `getgenv()` so re-running the script cleanly replaces the old instance.
 
 ```lua
 esp:setNPCSource(function() return collectEnemies() end)

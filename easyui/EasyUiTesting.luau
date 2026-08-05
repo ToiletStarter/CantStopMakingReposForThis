@@ -785,7 +785,18 @@ function UI.new(o)
 		if i.KeyCode ~= Enum.KeyCode.Unknown then
 			for _, wd in ipairs(self:_bindsFor(i.KeyCode)) do
 				if wd.bindKey == i.KeyCode and wd.activate and (not wd.row or wd.row:IsDescendantOf(self.gui)) then
-					task.spawn(wd.activate)
+					if wd.bindMode == "hold" then
+						if wd.setState then
+							wd._heldPrev = wd.getState and wd.getState() or false
+							wd._held = true
+							task.spawn(wd.setState, true)
+						else
+							wd._held = true
+							task.spawn(wd.activate)
+						end
+					else
+						task.spawn(wd.activate)
+					end
 					if wd.getState and not (wd.opt and wd.opt.silent) then
 						task.defer(function()
 							local on = wd.getState()
@@ -793,6 +804,22 @@ function UI.new(o)
 						end)
 					end
 				end
+			end
+		end
+	end)
+	self:_connect(Input.InputEnded, function(i)
+		if i.KeyCode == Enum.KeyCode.Unknown then
+			return
+		end
+		for _, wd in ipairs(self:_bindsFor(i.KeyCode)) do
+			if wd._held and wd.bindKey == i.KeyCode and wd.bindMode == "hold" then
+				wd._held = false
+				if wd.setState then
+					task.spawn(wd.setState, wd._heldPrev and true or false)
+				elseif wd.activate then
+					task.spawn(wd.activate)
+				end
+				self:_refreshBindHUD()
 			end
 		end
 	end)
@@ -2421,6 +2448,8 @@ function UI._Sec:Toggle(o)
 	end)
 	self._m:_reg({ kind = "toggle", opt = o, row = r, getState = function()
 		return state
+	end, setState = function(v)
+		api:Set(v)
 	end, activate = function()
 		api:Set(not state)
 	end })
