@@ -134,6 +134,7 @@ Every widget takes an options table. Common option keys:
 - `callback` — `function(value)` fired on change (never on construction).
 - `context` — `function(section, widget)` builds a right-click mini-panel (see [context menus](#right-click-context-menus)).
 - `noKeybind = true` — disable the right-click "assign keybind" row for this control.
+- `bindMode = "toggle" | "hold"` — default activation mode for its right-click keybind. Invalid values become `"toggle"`.
 - `hudColor` — `Color3` or `function(active) -> Color3` for the keybind HUD row color.
 
 ### Label
@@ -283,7 +284,7 @@ sec:Widget("vector", { text = "Offset" })
 
 ## Right-click context menus
 
-Right-clicking any actionable control (toggle, button, slider, dropdown, textbox, colorpicker) opens a Neverlose-style mini-panel. By default it contains an **assign keybind** row. Add your own controls with the `context` option — this is the place for extra per-feature settings you didn't want to give dedicated rows:
+Right-clicking any actionable control (toggle, button, slider, dropdown, textbox, colorpicker) opens a Neverlose-style mini-panel. By default it contains an **assign keybind** row and a **Mode** row that switches between `Toggle` and `Hold`. Add your own controls with the `context` option — this is the place for extra per-feature settings you didn't want to give dedicated rows:
 
 ```lua
 sec:Toggle({
@@ -298,6 +299,8 @@ sec:Toggle({
 ```
 
 Context controls that share a `flag` with a main widget stay in sync — editing one updates the other. Pass `noKeybind = true` on a control to remove the keybind row. Context values persist through configs even before the panel is first opened, as long as you pre-declare them (`M:Set("esp.range", 500)`).
+
+`Toggle` mode runs the control's normal activation once per key press. On a toggle widget, `Hold` forces the state on while the key is down and restores the state that existed before the press when released. Non-stateful controls run once on key down in either mode and are never fired a second time on release. The mode is initialized when the widget is built, so `bindMode = "hold"` works before the context menu has ever opened.
 
 ---
 
@@ -362,7 +365,7 @@ Numeric keys survive JSON round-trips (`esp.list.1.x` resolves `[1]`).
 
 ## Config profiles
 
-Save/load the whole flag + mount + keybind + accent state as JSON. Requires executor filesystem APIs (`writefile`/`readfile`/...); degrades to no-op where missing.
+Save/load the whole flag + mount + keybind + keybind-mode + accent state as JSON. Both `toggle` and `hold` are written explicitly so importing a toggle profile reliably replaces a currently-held mode. Requires executor filesystem APIs (`writefile`/`readfile`/...); degrades to no-op where missing.
 
 ```lua
 M:ExportConfig()          -- returns JSON string  (alias M:CFG())
@@ -814,7 +817,12 @@ Theme.Font, Theme.Bold, Theme.Mono   -- BuilderSans family with Gotham fallback
 
 ## Changelog
 
-No public method, widget option, config key, or default changed in any of the entries below.
+### Keybind mode pass
+
+- Every right-click-bindable control now exposes `Toggle` / `Hold` mode beside its key assignment.
+- `bindMode` is applied during widget registration instead of waiting for the context menu to open.
+- Configs explicitly persist both modes and update the live widget immediately on import.
+- Hold-mode toggles restore their previous state on release, repeated key-down events are ignored, and one-shot controls are never replayed on key-up.
 
 ### Stability pass
 

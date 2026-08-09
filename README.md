@@ -246,10 +246,10 @@ M:OpenConsole()
 
 - **Navigation:** top tab bar with nested subtab strips (`M:Tab():SubTab():Section()`).
 - **Widgets:** toggle, button, slider (fluid, dot-on-grab), dropdown, keybind, textbox, colorpicker, badge, label, divider, media, collapsible `Info`, custom widgets.
-- **Right-click context menus** on every control for keybinds and per-feature settings.
+- **Right-click context menus** on every control for keybinds, per-bind `Toggle` / `Hold` behavior, and per-feature settings.
 - **Split windows** that reuse the full tab/widget API; draggable, resizable, with center-snap guides + live x/y readout.
 - **Runtime:** `Schedule` / `Every` / `Batch` / `Queue` / `Use` / `Drop` / `Exec`, all owned and auto-cleaned.
-- **Configs:** JSON profiles with mounts, keybinds, and a ready-made `ConfigTab`.
+- **Configs:** JSON profiles with mounts, keybinds, keybind modes, and a ready-made `ConfigTab`.
 - **Overlay:** hardcoded top-most `DisplayOrder` + named layer table (`M:Attach`, `Toolkit.Layer`, `Toolkit.Visuals`).
 - **Polish:** Apple-style open/close, frosted top-left light, custom cursor fused to the pointer, keybind HUD with state colors, click-to-dismiss toasts, rich text + custom fonts.
 - **Tools:** input hooks (`OnInput` / `OnMouseMove` / `GetMouse`) and a verbose debug log (rconsole + clipboard).

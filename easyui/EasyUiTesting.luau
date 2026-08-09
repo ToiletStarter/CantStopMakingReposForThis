@@ -510,6 +510,20 @@ end
 
 local NO_BINDS = {}
 
+local function normalizeBindMode(value)
+	return value == "hold" and "hold" or "toggle"
+end
+
+local function widgetBindId(widget)
+	local opt = widget and widget.opt
+	local id = opt and (opt.bindId or opt.flag or opt.id or opt.text)
+	return id and tostring(id) or nil
+end
+
+local function bindModeFlag(id)
+	return "binds.mode." .. tostring(id)
+end
+
 function UI:_bindsFor(key)
 	if self._bindIndexDirty ~= false then
 		local index = {}
@@ -786,13 +800,14 @@ function UI.new(o)
 			for _, wd in ipairs(self:_bindsFor(i.KeyCode)) do
 				if wd.bindKey == i.KeyCode and wd.activate and (not wd.row or wd.row:IsDescendantOf(self.gui)) then
 					if wd.bindMode == "hold" then
-						if wd.setState then
-							wd._heldPrev = wd.getState and wd.getState() or false
+						if not wd._held then
 							wd._held = true
-							task.spawn(wd.setState, true)
-						else
-							wd._held = true
-							task.spawn(wd.activate)
+							if wd.setState then
+								wd._heldPrev = wd.getState and wd.getState() or false
+								task.spawn(wd.setState, true)
+							else
+								task.spawn(wd.activate, true)
+							end
 						end
 					else
 						task.spawn(wd.activate)
@@ -816,8 +831,8 @@ function UI.new(o)
 				wd._held = false
 				if wd.setState then
 					task.spawn(wd.setState, wd._heldPrev and true or false)
-				elseif wd.activate then
-					task.spawn(wd.activate)
+				elseif wd.release then
+					task.spawn(wd.release, false)
 				end
 				self:_refreshBindHUD()
 			end
@@ -1629,9 +1644,10 @@ function UI:ExportConfig()
 		end
 	end
 	for _, widget in ipairs(self.widgets) do
-		local bindId = widget.opt and (widget.opt.bindId or widget.opt.flag or widget.opt.id or widget.opt.text)
+		local bindId = widgetBindId(widget)
 		if bindId and (widget.activate or widget.kind == "keybind") then
 			binds[tostring(bindId)] = widget.bindKey and packValue(widget.bindKey) or { __t = "n" }
+			binds["mode." .. tostring(bindId)] = normalizeBindMode(widget.bindMode)
 		end
 	end
 	return Http:JSONEncode({ version = 1, values = values, binds = binds, mounts = mounts, accent = packValue(self._accent) })
@@ -1662,11 +1678,16 @@ function UI:ImportConfig(json)
 		pcall(self.Set, self, flag, unpackValue(packed))
 	end
 	for _, widget in ipairs(self.widgets) do
-		local bindId = widget.opt and (widget.opt.bindId or widget.opt.flag or widget.opt.id or widget.opt.text)
+		local bindId = widgetBindId(widget)
 		local packed = bindId and data.binds and data.binds[tostring(bindId)]
 		if packed then
 			local key = unpackValue(packed)
 			if widget.setBind then widget.setBind(key) else widget.bindKey = key end
+		end
+		local packedMode = bindId and data.binds and data.binds["mode." .. tostring(bindId)] or bindId and self:_read(bindModeFlag(bindId))
+		if packedMode == "hold" or packedMode == "toggle" then
+			widget.bindMode = normalizeBindMode(packedMode)
+			self:_write(bindModeFlag(bindId), widget.bindMode)
 		end
 	end
 	for name in pairs(data.mounts or {}) do self:Sync(name) end
@@ -1867,6 +1888,12 @@ function UI:_reg(wd)
 	end
 	self.widgets[#self.widgets + 1] = wd
 	local hasKeybind = wd.activate and not wd.noKeybind and not (wd.opt and wd.opt.noKeybind)
+	local bindId = widgetBindId(wd)
+	if hasKeybind and bindId then
+		local savedMode = self:_read(bindModeFlag(bindId))
+		wd.bindMode = normalizeBindMode(savedMode or wd.opt and wd.opt.bindMode)
+		self:_write(bindModeFlag(bindId), wd.bindMode)
+	end
 	if wd.row and (hasKeybind or (wd.opt and wd.opt.context)) then
 		wd.row.Active = true
 		wd.row.InputBegan:Connect(function(i)
@@ -3376,6 +3403,45 @@ function UI:_openContext(wd)
 				self:_refreshBindHUD()
 			end)
 		end)
+
+		local bindId = widgetBindId(wd)
+		local modeFlag = bindId and bindModeFlag(bindId) or nil
+		if modeFlag then
+			local saved = self:_read(modeFlag)
+			wd.bindMode = normalizeBindMode(saved or wd.bindMode or wd.opt and wd.opt.bindMode)
+			self:_write(modeFlag, wd.bindMode)
+		end
+
+		local rm = modeFlag and rowFrame(self._ctxHold, 26) or nil
+		if rm then
+			local ml = label("Mode", 12, Theme.Sub, Theme.Font, rm)
+			ml.Size = UDim2.new(1, -80, 1, 0)
+			local mb = new("TextButton", {
+				Text = "",
+				AutoButtonColor = false,
+				Modal = true,
+				Size = UDim2.fromOffset(76, 22),
+				Position = UDim2.new(1, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(1, 0.5),
+				BackgroundColor3 = Theme.Control,
+				BorderSizePixel = 0,
+				ZIndex = 62,
+				Parent = rm,
+			})
+			corner(6, mb)
+			stroke(Theme.Soft, 1, 0, mb)
+			local mbl = label(wd.bindMode == "hold" and "Hold" or "Toggle", 11, Theme.Sub, Theme.Mono, mb)
+			mbl.Size = UDim2.fromScale(1, 1)
+			mbl.TextXAlignment = Enum.TextXAlignment.Center
+			mbl.ZIndex = 63
+			mb.MouseButton1Click:Connect(function()
+				wd.bindMode = wd.bindMode == "hold" and "toggle" or "hold"
+				if modeFlag then
+					self:_write(modeFlag, wd.bindMode)
+				end
+				mbl.Text = wd.bindMode == "hold" and "Hold" or "Toggle"
+			end)
+		end
 	end
 
 	local before = {}
