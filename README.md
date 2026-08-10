@@ -6,6 +6,7 @@ Single-file Roblox executor libraries. Built for Potassium and UNC-style executo
 | --- | --- | --- |
 | **EasyStack** | [`easystack/`](easystack/) | Shared registry — one table every library and script writes into, plus a destroy-all helper. |
 | **EasyUI** | [`easyui/`](easyui/) | Menu framework — windows, tabs, widgets, context menus, managed runtime, config profiles. |
+| **EasyUI Style 2** | [`easyui/`](easyui/) | Alternate look for the same authoring shape — floating multi-window panels, springs, toast stack. |
 | **EasyESP** | [`easyesp/`](easyesp/) | Drawing-based ESP engine — boxes, names, health, bones, chams, radar, entity tracking. |
 | **EasyWorld** | [`easyworld/`](easyworld/) | World-space 3D visual engine — ground rings, spheres, orbit paths, wireframe boxes, beams, arcs, with occlusion. |
 | **EasyAim** | [`easyaim/`](easyaim/) | Adapter-driven aim engine — legit smoothing, rage snapping, silent aim, prediction, triggerbot, FOV. |
@@ -24,6 +25,7 @@ They are independent. Load any on its own, or attach the ESP to the UI with `UI:
 local BASE    = "https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/"
 local Stack   = loadstring(game:HttpGet(BASE .. "easystack/EasyStack.luau"))()
 local UI      = loadstring(game:HttpGet(BASE .. "easyui/EasyUiTesting.luau"))()
+local Style2  = loadstring(game:HttpGet(BASE .. "easyui/EasyUi_style_2.luau"))()
 local EasyESP = loadstring(game:HttpGet(BASE .. "easyesp/EasyESP.luau"))()
 local EasyWorld = loadstring(game:HttpGet(BASE .. "easyworld/EasyWorld.luau"))()
 local EasyBudget = loadstring(game:HttpGet(BASE .. "easybudget/EasyBudget.luau"))()
@@ -262,6 +264,58 @@ M:OpenConsole()
 ## Security
 
 The library only creates and mutates **its own `ScreenGui`** and reads client-local services (input, tween, camera, marketplace name for the watermark). No remotes, no `workspace` writes, no other-player access. Configs are JSON only (no `loadstring`); filenames are sanitized. See the docs for the full breakdown.
+
+---
+
+# EasyUI Style 2
+
+A second visual style for EasyUI, in its own file. Same authoring shape — `UI.new` → `Window` → `Tab` → `Section` → widgets — with a different look: floating multi-window panels, translucent dark surfaces, an accent dot per window, spring animations and a bottom-right toast stack.
+
+Where EasyUI is one window with a tab strip, Style 2 is many small windows you scatter and collapse independently. Loading it does not affect `EasyUiTesting.luau`; both can run at once.
+
+## Install
+
+```lua
+local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ToiletStarter/CantStopMakingReposForThis/refs/heads/main/easyui/EasyUi_style_2.luau"))()
+```
+
+## Documentation
+
+Full reference: **[easyui/EasyUi_style_2_Documentation.md](easyui/EasyUi_style_2_Documentation.md)**.
+
+## Quick start
+
+```lua
+local M = UI.new({
+    title = "rotware",
+    accent = Color3.fromRGB(96, 205, 255),
+    toggleKey = Enum.KeyCode.RightShift,
+})
+
+local combat = M:Window("Combat", { x = 40, y = 90, width = 300, height = 330 })
+local aim = combat:Tab("Legit"):Section("Aim assist")
+
+aim:Toggle({ text = "Enabled", flag = "legit.on", default = true })
+aim:Slider({ text = "FOV radius", flag = "legit.fov", min = 10, max = 400, default = 120 })
+aim:Dropdown({ text = "Hitbox", flag = "legit.part", options = { "Head", "Torso", "Nearest" }, default = "Head" })
+aim:Keybind({ text = "Aim key", flag = "legit.key", default = Enum.KeyCode.C })
+
+M:Notify({ title = "rotware", text = "Loaded.", kind = "ok" })
+```
+
+## Highlights
+
+- **Multi-window:** every `M:Window` is an independent draggable panel with its own tabs, raise-on-click and a collapse button.
+- **Widgets:** toggle, button, slider (decimals, suffix, grab-grow knob), dropdown (scrolling popup at GUI root), keybind (click-to-listen, `Backspace` clears), textbox, colorpicker (inline hue strip), label, divider, badge.
+- **Motion:** Quint/Back springs, click ripples, sliding tab indicator, page slide-in.
+- **Toasts:** bottom-right stack, colored rail, draining progress bar.
+- **Flags:** `M:Get` / `M:Set`; two widgets sharing a flag stay in sync without re-firing callbacks.
+- **Live accent:** `M:SetAccent(color)` repaints dots, indicators, toggle tracks and slider fills.
+- **Watermark:** title with live fps and ping.
+
+## Scope
+
+Style 2 is deliberately smaller than EasyUI. No subtabs, config profiles, managed runtime, context menus, media import or `AttachESP` — use `EasyUiTesting.luau` when you need those.
 
 ---
 
