@@ -386,7 +386,6 @@ local function defaults()
         on = false,
         maxRange = 3000,
         espRange = 3000,
-        -- render priority: higher draws over lower. entity groups can override via spec.priority.
         priority = {
             scale = 100,
             player = 5,

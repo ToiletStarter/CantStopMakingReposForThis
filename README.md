@@ -14,6 +14,11 @@ Single-file Roblox executor libraries. Built for Potassium and UNC-style executo
 | **EasyCombat** | [`easycombat/`](easycombat/) | Combat helper on top of EasyAim — magic bullet, bullet TP, gun-system bridging. |
 | **EasyCap** | [`easycap/`](easycap/) | Capability probe — detects which executor APIs exist so features can degrade instead of erroring. |
 | **EasyBudget** | [`easybudget/`](easybudget/) | Remote rate budgeting — sliding-window token buckets, pacer with round-robin, per-remote limits and headroom. |
+| **EasySignals** | [`easysignals/`](easysignals/) | Lifecycle manager — owns connections, periodic jobs, throttles, debounces, and idempotent cleanup. |
+| **EasyReport** | [`easyreport/`](easyreport/) | Bounded structured reporting — JSON files, ring buffers, sinks, compaction, and redaction. |
+| **EasyStats** | [`easystats/`](easystats/) | Unified stats bus — runtime, player, memory, ESP/Aim/World/trace/state provider snapshots. |
+| **EasyStateWatch** | [`easystate/`](easystate/) | Replicated-state detector — bounded scans and diffs over client-visible server-authored state. |
+| **EasyRemoteTrace** | [`easytrace/`](easytrace/) | Metadata-first remote call tracing — observes outbound FireServer/InvokeServer calls without mutation. |
 
 They are independent. Load any on its own, or attach the ESP to the UI with `UI:AttachESP` for an auto-generated settings panel. EasyAim exposes the same descriptor shape, so a UI panel can be generated from `EasyAim.GetDescriptors()`.
 
@@ -30,6 +35,11 @@ local EasyESP = loadstring(game:HttpGet(BASE .. "easyesp/EasyESP.luau"))()
 local EasyWorld = loadstring(game:HttpGet(BASE .. "easyworld/EasyWorld.luau"))()
 local EasyBudget = loadstring(game:HttpGet(BASE .. "easybudget/EasyBudget.luau"))()
 local EasyAim = loadstring(game:HttpGet(BASE .. "easyaim/EasyAim.luau"))()
+local EasySignals = loadstring(game:HttpGet(BASE .. "easysignals/EasySignals.luau"))()
+local EasyReport = loadstring(game:HttpGet(BASE .. "easyreport/EasyReport.luau"))()
+local EasyStats = loadstring(game:HttpGet(BASE .. "easystats/EasyStats.luau"))()
+local EasyStateWatch = loadstring(game:HttpGet(BASE .. "easystate/EasyStateWatch.luau"))()
+local EasyRemoteTrace = loadstring(game:HttpGet(BASE .. "easytrace/EasyRemoteTrace.luau"))()
 ```
 
 ---
@@ -713,9 +723,11 @@ The pattern used across published scripts:
 4. **Wire ESP sources** — `setNPCSource` for AI, `addEnt` for loot/objectives, `flag` for per-target text.
 5. **Add world visuals** with EasyWorld for anything that belongs in 3D space — range rings, target bubbles, placement previews — rather than faking depth with 2D drawings.
 6. **Gate every remote send** through EasyBudget so automation cannot outrun the game's rate limiter. A breached limit increments the server's detection counter; a paced one does not.
-7. **Drive every loop** through `M:Schedule` / `M:Every` (never a bare `RunService` connection) so the UI owns cleanup.
-8. **Attach the ESP panel** with `M:AttachESP(esp, { build = true, singleWindow = true })` instead of hand-building controls.
-9. **Expose `Session.unload`** and stash it in `getgenv()` so re-running the script cleanly replaces the old instance.
+7. **Own every connection** with EasySignals so re-running a script performs one idempotent cleanup.
+8. **Publish observability** through EasyReport, EasyStats, EasyStateWatch, and EasyRemoteTrace instead of hand-rolled per-game telemetry.
+9. **Drive every loop** through `M:Schedule` / `M:Every` or EasySignals intervals; never leave a bare `RunService` connection untracked.
+10. **Attach the ESP panel** with `M:AttachESP(esp, { build = true, singleWindow = true })` instead of hand-building controls.
+11. **Expose `Session.unload`** and stash it in `getgenv()` so re-running the script cleanly replaces the old instance.
 
 ```lua
 esp:setNPCSource(function() return collectEnemies() end)
