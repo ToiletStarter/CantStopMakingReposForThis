@@ -457,7 +457,39 @@ local function resizeGrip(ui, target, opts, finished)
 	end)
 end
 
+local function guiContainers()
+	local out = {}
+	local seen = {}
+	local function add(root)
+		if root and not seen[root] then
+			seen[root] = true
+			out[#out + 1] = root
+		end
+	end
+	add(CoreGui)
+	if type(gethui) == "function" then
+		local ok, root = pcall(gethui)
+		if ok then add(root) end
+	end
+	if LP then
+		local ok, root = pcall(function() return LP:FindFirstChildOfClass("PlayerGui") end)
+		if ok then add(root) end
+	end
+	return out
+end
+
+local function cleanupGuiRoots()
+	for _, root in ipairs(guiContainers()) do
+		for _, child in ipairs(root:GetChildren()) do
+			if child:IsA("ScreenGui") and child.Name:sub(1, 7) == "EasyUI_" then
+				pcall(function() child:Destroy() end)
+			end
+		end
+	end
+end
+
 local function mountGui()
+	cleanupGuiRoots()
 	local g = new("ScreenGui", {
 		Name = "EasyUI_" .. tostring(math.random(1e5, 9e5)),
 		ResetOnSpawn = false,
@@ -548,9 +580,14 @@ function UI.new(o)
 	local self = setmetatable({}, UI)
 	local env = typeof(getgenv) == "function" and getgenv() or _G
 	local previous = env.__EASYUI_ACTIVE
-	if previous and previous ~= self and type(previous.Close) == "function" then
-		pcall(previous.Close, previous)
+	if previous and previous ~= self then
+		if type(previous._destroyNow) == "function" then
+			pcall(previous._destroyNow, previous)
+		elseif type(previous.Close) == "function" then
+			pcall(previous.Close, previous)
+		end
 	end
+	cleanupGuiRoots()
 	self._connections = {}
 	self.gui = mountGui()
 	self:_connect(Input.InputChanged, function(i)
@@ -1040,8 +1077,41 @@ function UI:SetVisible(v, reason)
 	end
 end
 
+function UI:_destroyNow()
+	if self._destroyed then
+		return
+	end
+	self._destroyed = true
+	self._closing = true
+	self._dragMove, self._dragUp = nil, nil
+	pcall(function() self:_setCapture(nil) end)
+	pcall(function() self:SetCursor(false) end)
+	if self._espLink then
+		pcall(function() self._espLink:detach() end)
+		self._espLink = nil
+	end
+	while next(self._features) do
+		self:Drop(next(self._features))
+	end
+	self:_cleanup()
+	local env = typeof(getgenv) == "function" and getgenv() or _G
+	if env.__EASYUI_ACTIVE == self then
+		env.__EASYUI_ACTIVE = nil
+	end
+	if self.gui then
+		pcall(function() self.gui:Destroy() end)
+	end
+end
+
 function UI:Close()
-	if self._closing or not self.gui.Parent then
+	if self._destroyed then
+		return
+	end
+	if self._closing then
+		return
+	end
+	if not self.gui or not self.gui.Parent then
+		self:_destroyNow()
 		return
 	end
 	self._closing = true
@@ -1050,17 +1120,16 @@ function UI:Close()
 	self:_setCapture(nil)
 	self:SetCursor(false)
 	if self._espLink then
-		self._espLink:detach()
+		pcall(function() self._espLink:detach() end)
+		self._espLink = nil
 	end
-	while next(self._features) do self:Drop(next(self._features)) end
+	while next(self._features) do
+		self:Drop(next(self._features))
+	end
 	self:_cleanup()
-	local env = typeof(getgenv) == "function" and getgenv() or _G
-	if env.__EASYUI_ACTIVE == self then
-		env.__EASYUI_ACTIVE = nil
-	end
 	local t = tw(self._scale, E.Smooth, { Scale = 0.7 })
 	t.Completed:Connect(function()
-		self.gui:Destroy()
+		self:_destroyNow()
 	end)
 end
 

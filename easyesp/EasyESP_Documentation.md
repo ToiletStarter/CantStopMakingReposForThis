@@ -1,5 +1,9 @@
 # EasyESP
 
+`EasyESP` now exposes an independent `cfg.players.on` gate and `:players(value)` method. The global `cfg.on` gate still controls the renderer, while `players.on` controls player records separately from NPC/entity sources.
+
+The player gate is observation/rendering only. It does not change player state or call remotes.
+
 Single-file Roblox executor ESP library (`EasyESP.luau`, version `4.0.0`). It draws screen-space overlays through the executor `Drawing` API: 2D and 3D boxes, corner boxes, names, distances, health bars, bone skeletons, head dots, gaze lines, tracers, text flags, off-screen arrows, world-space rings, a rotating radar, a player list, a target selector with FOV circle/brackets/snapline/info card, a threat banner, self-HUD (FOV circle, crosshair, watermark, compass), Highlight/material chams, and lighting overrides. It targets script authors who want a configuration table rather than a widget tree: one `ESP.new()` instance owns a config tree, a drawing pool, a per-frame render loop, and optional player/NPC/entity sources.
 
 ---

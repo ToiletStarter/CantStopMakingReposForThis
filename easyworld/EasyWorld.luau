@@ -422,6 +422,17 @@ end
 
 local Shapes = {}
 
+local function dynamicValue(value, fallback)
+    if type(value) == "function" then
+        local ok, result = pcall(value)
+        if ok then
+            return result
+        end
+        return fallback
+    end
+    return value == nil and fallback or value
+end
+
 local Runtime = {}
 local GENV = (type(getgenv) == "function" and getgenv()) or shared or _G
 GENV.__EASY_STACK = GENV.__EASY_STACK or {}
@@ -672,9 +683,10 @@ Shapes.ring = function(self, key, spec)
     local sides = max(8, floor((spec.sides or 48) * (self.cfg.quality or 1)))
     local normal = spec.normal or tiltNormal(spec.tilt, spec.yaw)
     local lanes = max(1, floor(spec.lanes or 1))
+    local baseRad = dynamicValue(spec.rad, 10)
     for lane = 1, lanes do
         local off = lanes > 1 and (lane - (lanes + 1) * 0.5) * (spec.laneGap or 0.6) or 0
-        local rad = (spec.rad or 10) + off
+        local rad = baseRad + off
         if rad > 0.05 then
             local phase = lanes > 1 and (lane / lanes) * (spec.lanePhase or 0) or 0
             local pts = self:_ringPoints(center + normal * ((spec.lift or 0) + (lanes > 1 and off * (spec.laneLift or 0) or 0)), rad, normal, spec, sides, phase)

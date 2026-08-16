@@ -664,6 +664,9 @@ local function defaults()
             con = 0,
         },
     }
+    t.players = {
+        on = false,
+    }
     t.npc = {
         on = false,
         espRange = t.espRange,
@@ -694,6 +697,7 @@ end
 local DESCRIPTOR_DEFAULTS = defaults()
 
 local DESCRIPTORS = {
+    desc("players.on", "toggle", "Players", { window = "Visuals", tab = "Players", subtab = "Main", section = "Players", order = 5, default = false, desc = "Enable player ESP rendering." }),
     desc("target.on", "toggle", "Target", { window = "Combat", tab = "Target", subtab = "Selector", section = "Main", order = 10, default = pathGet(DESCRIPTOR_DEFAULTS, "target.on"), desc = "Enable target selection." }),
     desc("target.fov", "slider", "FOV", { window = "Combat", tab = "Target", subtab = "Selector", section = "Main", order = 20, min = 20, max = 500, step = 1, default = pathGet(DESCRIPTOR_DEFAULTS, "target.fov"), desc = "Screen-space radius used for target selection." }),
     desc("target.showFov", "toggle", "Show FOV", { window = "Combat", tab = "Target", subtab = "Selector", section = "Main", order = 30, default = pathGet(DESCRIPTOR_DEFAULTS, "target.showFov") }),
@@ -2141,6 +2145,9 @@ function ESP:_head(s, c, a)
 end
 
 function ESP:_player(s)
+    if not s.npc and not self.cfg.players.on then
+        return
+    end
     local cfg = s.cfg or self.cfg
     if cfg.team and s.ally then
         return
@@ -3051,6 +3058,11 @@ end
 
 function ESP:npc(v)
     self.cfg.npc.on = v and true or false
+    return self
+end
+
+function ESP:players(v)
+    self.cfg.players.on = v and true or false
     return self
 end
 

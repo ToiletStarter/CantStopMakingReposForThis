@@ -66,7 +66,7 @@ local M = UI.new({
 })
 ```
 
-Creating a new instance automatically closes the previous one (tracked in `getgenv().__EASYUI_ACTIVE`), so re-running your script never stacks menus.
+Creating a new instance synchronously destroys the previous one tracked in `getgenv().__EASYUI_ACTIVE`, removes orphaned `EasyUI_` ScreenGui roots from CoreGui/gethui/PlayerGui, and then mounts the new root. Re-running your script cannot leave duplicate EasyUI roots behind.
 
 ---
 

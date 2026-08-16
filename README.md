@@ -12,6 +12,9 @@ Single-file Roblox executor libraries. Built for Potassium and UNC-style executo
 | **EasyAim** | [`easyaim/`](easyaim/) | Adapter-driven aim engine — legit smoothing, rage snapping, silent aim, prediction, triggerbot, FOV. |
 | **EasyAntiAim** | [`easyantiaim/`](easyantiaim/) | Anti-aim — angle manipulation, yaw jitter, fake lag, desync, hitbox hiding. |
 | **EasyCombat** | [`easycombat/`](easycombat/) | Combat helper on top of EasyAim — magic bullet, bullet TP, gun-system bridging. |
+| **EasyAdapter** | [`easyadapter/`](easyadapter/) | Game-agnostic source binder — tagged/folder entities, NPC labels, EasyESP/EasyWorld bindings, snapshots, and cleanup. |
+| **EasyThreat** | [`easythreat/`](easythreat/) | Read-only threat tracker — aggro classification, distance/approach state, bounded future motion paths, and confidence labels. |
+| **EasyNoise** | [`easynoise/`](easynoise/) | Read-only audio-meter observer — estimated noise reach, expanding puddle pulses, and inferred monster responses without pinging. |
 | **EasyCap** | [`easycap/`](easycap/) | Capability probe — detects which executor APIs exist so features can degrade instead of erroring. |
 | **EasyBudget** | [`easybudget/`](easybudget/) | Remote rate budgeting — sliding-window token buckets, pacer with round-robin, per-remote limits and headroom. |
 | **EasySignals** | [`easysignals/`](easysignals/) | Lifecycle manager — owns connections, periodic jobs, throttles, debounces, and idempotent cleanup. |
@@ -40,6 +43,9 @@ local EasyReport = loadstring(game:HttpGet(BASE .. "easyreport/EasyReport.luau")
 local EasyStats = loadstring(game:HttpGet(BASE .. "easystats/EasyStats.luau"))()
 local EasyStateWatch = loadstring(game:HttpGet(BASE .. "easystate/EasyStateWatch.luau"))()
 local EasyRemoteTrace = loadstring(game:HttpGet(BASE .. "easytrace/EasyRemoteTrace.luau"))()
+local EasyAdapter = loadstring(game:HttpGet(BASE .. "easyadapter/EasyAdapter.luau"))()
+local EasyThreat = loadstring(game:HttpGet(BASE .. "easythreat/EasyThreat.luau"))()
+local EasyNoise = loadstring(game:HttpGet(BASE .. "easynoise/EasyNoise.luau"))()
 ```
 
 ---

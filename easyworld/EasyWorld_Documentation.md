@@ -4,7 +4,7 @@ Single-file Roblox executor **world-space** visual engine (`EasyWorld.luau`, ver
 
 Where EasyESP draws 2D overlays anchored to entities on screen, EasyWorld draws **geometry that lives in the world** — rings that lie flat on the ground, spheres that wrap a target, orbit paths that show where a player will walk, boxes that preview a block placement. Every shape is projected per-frame through the camera, so it has real perspective: it grows as you approach, tilts as you turn, and dims when something occludes it.
 
-It is game-agnostic. A shape is a spec table plus a `get` function that returns a position; EasyWorld does the projection, culling, styling and pooling.
+It is game-agnostic. A shape is a spec table plus a `get` function that returns a position; EasyWorld does the projection, culling, styling and pooling. Ring specs also accept a function for `rad`, allowing bounded effects such as expanding audio reach indicators without rebuilding the shape.
 
 ---
 
