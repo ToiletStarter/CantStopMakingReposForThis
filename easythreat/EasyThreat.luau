@@ -203,12 +203,17 @@ function Threat:_update(model, now, localRoot, localCharacter)
         status, confidence = "IDLE", "none"
     end
     local velocity = root.AssemblyLinearVelocity
-    local moveDirection = velocity.Magnitude > 0.1 and velocity.Unit or Vector3.zero
+    local moveInput = humanoid and humanoid.MoveDirection or Vector3.zero
+    local hasMoveInput = moveInput.Magnitude > 0.05
+    local moveDirection = velocity.Magnitude > 0.1 and velocity.Unit or (hasMoveInput and moveInput.Unit or Vector3.zero)
     local walkToPoint = humanoid and humanoid.WalkToPoint or Vector3.zero
     local walkDistance = (walkToPoint - position).Magnitude
-    local prediction = velocity.Magnitude > 0.1 and "velocity" or "none"
+    local prediction = velocity.Magnitude > 0.1 and "velocity" or (hasMoveInput and "move-direction" or "none")
     local stepSpeed = velocity.Magnitude
-    if walkDistance > 1 then
+    if hasMoveInput then
+        stepSpeed = math.max(stepSpeed, humanoid and humanoid.WalkSpeed or 0)
+    end
+    if hasMoveInput and walkDistance > 1 then
         moveDirection = (walkToPoint - position).Unit
         stepSpeed = math.max(stepSpeed, humanoid and humanoid.WalkSpeed or 0, 8)
         prediction = "walk-target"
