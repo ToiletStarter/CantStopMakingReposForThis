@@ -1,6 +1,6 @@
 # EasyESP
 
-`EasyESP` now exposes an independent `cfg.players.on` gate and `:players(value)` method. The global `cfg.on` gate still controls the renderer, while `players.on` controls player records separately from NPC/entity sources.
+`EasyESP` now exposes an independent `cfg.players.on` gate and `:players(value)` method. The global `cfg.on` gate still controls the renderer, while `players.on` controls player records separately. `:setPlayerLabel(function(player, snapshot) ... end)` optionally replaces the default player name text with a caller-provided client-visible label.
 
 The player gate is observation/rendering only. It does not change player state or call remotes.
 

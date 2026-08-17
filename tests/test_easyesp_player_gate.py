@@ -9,6 +9,8 @@ def test_easyesp_has_independent_player_gate():
     source = SOURCE.read_text(encoding="utf-8")
     assert "players = {" in source
     assert "function ESP:players" in source
+    assert "function ESP:setPlayerLabel" in source
+    assert "self.playerLabel" in source
     assert "not s.npc and not self.cfg.players.on" in source
     assert DOCS.exists()
 

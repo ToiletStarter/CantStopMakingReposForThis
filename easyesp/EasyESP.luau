@@ -1275,6 +1275,7 @@ function ESP.new(opt)
     self.npcRecs = {}
     self.npcSrc = nil
     self.npcLabel = nil
+    self.playerLabel = nil
     self._npcId = 0
     self.plrs = {}
     self.con = {}
@@ -2079,7 +2080,13 @@ function ESP:_nameDraw(s, c, a)
         return s.by - 4
     end
     local txt
-    if s.plr then
+    if s.plr and type(self.playerLabel) == "function" then
+        local ok, value = pcall(self.playerLabel, s.plr, s)
+        if ok and type(value) == "string" and value ~= "" then
+            txt = value
+        end
+    end
+    if not txt and s.plr then
         if n.user and n.on then
             txt = s.plr.DisplayName .. " (" .. s.plr.Name .. ")"
         elseif n.user then
@@ -2087,7 +2094,7 @@ function ESP:_nameDraw(s, c, a)
         else
             txt = s.plr.DisplayName
         end
-    else
+    elseif not txt then
         txt = s.name or "?"
     end
     local y = s.by - n.size - 4
@@ -3053,6 +3060,11 @@ end
 
 function ESP:setNPCLabel(fn)
     self.npcLabel = type(fn) == "function" and fn or nil
+    return self
+end
+
+function ESP:setPlayerLabel(fn)
+    self.playerLabel = type(fn) == "function" and fn or nil
     return self
 end
 
