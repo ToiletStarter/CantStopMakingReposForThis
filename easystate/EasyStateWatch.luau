@@ -8,7 +8,7 @@ local GENV = (getgenv and getgenv()) or shared or _G
 
 local StateWatch = {}
 StateWatch.__index = StateWatch
-StateWatch.version = "1.0.0"
+StateWatch.version = "1.1.0"
 
 local VALUE_CLASSES = {
     BoolValue = true,
@@ -134,6 +134,7 @@ function StateWatch.new(options)
     options = type(options) == "table" and options or {}
     local self = setmetatable({}, StateWatch)
     self.roots = type(options.roots) == "table" and options.roots or defaultRoots()
+    self.rootProvider = type(options.rootProvider) == "function" and options.rootProvider or nil
     self.maxDepth = options.maxDepth or 5
     self.maxNodes = options.maxNodes or 3000
     self.maxChanges = options.maxChanges or 200
@@ -156,6 +157,22 @@ function StateWatch:setRoots(roots)
         self.last = nil
     end
     return self
+end
+
+function StateWatch:setRootProvider(provider)
+    self.rootProvider = type(provider) == "function" and provider or nil
+    self.last = nil
+    return self
+end
+
+function StateWatch:resolvedRoots()
+    if self.rootProvider then
+        local ok, roots = pcall(self.rootProvider)
+        if ok and type(roots) == "table" then
+            return roots
+        end
+    end
+    return self.roots
 end
 
 function StateWatch:record(obj)
@@ -229,7 +246,7 @@ function StateWatch:scan()
             end
         end
     end
-    for _, root in ipairs(self.roots) do
+    for _, root in ipairs(self:resolvedRoots()) do
         if root then
             pcall(visit, root, 0)
         end
@@ -325,6 +342,7 @@ function StateWatch:destroy()
     self:stop()
     self.last = nil
     self.lastDiff = nil
+    self.rootProvider = nil
 end
 
 StateWatch.Destroy = StateWatch.destroy

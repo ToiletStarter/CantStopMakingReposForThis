@@ -14,7 +14,9 @@ local watcher = StateWatch.quick({ maxDepth = 4, maxNodes = 2500 })
 | Method | Purpose |
 | --- | --- |
 | `StateWatch.new(options)` | Create a watcher. |
-| `watcher:setRoots(roots)` | Replace scan roots. |
+| `watcher:setRoots(roots)` | Replace static scan roots. |
+| `watcher:setRootProvider(fn)` | Set a callback that returns current scan roots for dynamic characters/streaming. |
+| `watcher:resolvedRoots()` | Return roots from the provider or static fallback. |
 | `watcher:scan()` | Return map, sorted list, and counters. |
 | `watcher:sample()` | Scan and diff against the prior sample. |
 | `watcher:getStats()` | Return counters and last diff counts. |
@@ -27,7 +29,8 @@ local watcher = StateWatch.quick({ maxDepth = 4, maxNodes = 2500 })
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `roots` | ReplicatedStorage, Workspace, LocalPlayer, Teams | Scan roots. |
+| `roots` | ReplicatedStorage, Workspace, LocalPlayer, Teams | Static scan roots. |
+| `rootProvider` | nil | Optional `fn() -> { Instance }` resolved before each scan. |
 | `maxDepth` | 5 | Max recursive depth per root. |
 | `maxNodes` | 3000 | Hard node cap. |
 | `maxChanges` | 200 | Max detailed added/removed/changed records per sample. |
@@ -42,6 +45,9 @@ local watcher = StateWatch.quick({ maxDepth = 4, maxNodes = 2500 })
 ```lua
 local watcher = StateWatch.new({
     roots = { ReplicatedStorage, Workspace, Players.LocalPlayer },
+    rootProvider = function()
+        return { ReplicatedStorage, Workspace, Players.LocalPlayer, Players.LocalPlayer.Character }
+    end,
     maxDepth = 4,
     maxNodes = 2000,
     interval = 2,
