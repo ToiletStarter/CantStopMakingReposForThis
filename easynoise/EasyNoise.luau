@@ -1,11 +1,12 @@
 local Noise = {}
 Noise.__index = Noise
-Noise.version = "1.1.0"
+Noise.version = "1.2.0"
 
 function Noise.new(options)
     options = type(options) == "table" and options or {}
     local self = setmetatable({}, Noise)
     self.event = options.event
+    self.pingEvent = options.pingEvent
     self.threat = options.threat
     self.multiplier = tonumber(options.multiplier) or 90
     self.maxWeight = tonumber(options.maxWeight) or 3
@@ -15,7 +16,9 @@ function Noise.new(options)
     self.pulseWeight = 0
     self.lastAt = 0
     self.pulseAt = 0
-    self.connection = nil
+    self.lastSource = "unavailable"
+    self.sourceCounts = {}
+    self.connections = {}
     self.running = false
     self.lastSnapshot = nil
     return self
@@ -31,41 +34,87 @@ function Noise:setThreat(threat)
     return self
 end
 
-function Noise:_onWeight(value)
+function Noise:setEvent(event)
+    self.event = event
+    return self
+end
+
+function Noise:setPingEvent(event)
+    self.pingEvent = event
+    return self
+end
+
+function Noise:setPulseDuration(value)
+    self.pulseDuration = math.max(0.05, tonumber(value) or self.pulseDuration)
+    return self
+end
+
+function Noise:setActiveWindow(value)
+    self.activeWindow = math.max(0.05, tonumber(value) or self.activeWindow)
+    return self
+end
+
+function Noise:_onWeight(value, source)
     value = tonumber(value) or 0
     self.weight = math.clamp(value, 0, self.maxWeight)
     self.lastAt = os.clock()
+    self.lastSource = source or self.lastSource
+    self.sourceCounts[self.lastSource] = (self.sourceCounts[self.lastSource] or 0) + 1
     if self.weight > 0 then
         self.pulseWeight = self.weight
         self.pulseAt = self.lastAt
     end
 end
 
-function Noise:start()
-    if self.connection or not self.event then
-        self.running = self.connection ~= nil
-        return self
+function Noise:_onSignal(source, ...)
+    for index = 1, select("#", ...) do
+        local value = select(index, ...)
+        if type(value) == "number" then
+            self:_onWeight(value, source)
+            return
+        end
+    end
+end
+
+function Noise:_connect(event, signalName, source)
+    if not event then
+        return false
     end
     local ok, connection = pcall(function()
-        return self.event.Event:Connect(function(value)
-            self:_onWeight(value)
+        local signal = event[signalName]
+        if not signal then
+            return nil
+        end
+        return signal:Connect(function(...)
+            self:_onSignal(source, ...)
         end)
     end)
-    if ok then
-        self.connection = connection
-        self.running = true
+    if ok and connection then
+        self.connections[#self.connections + 1] = connection
+        return true
     end
+    return false
+end
+
+function Noise:start()
+    if #self.connections > 0 then
+        self.running = true
+        return self
+    end
+    self:_connect(self.event, "Event", "AudioMeter")
+    self:_connect(self.pingEvent, "OnClientEvent", "GamePing")
+    self.running = #self.connections > 0
     return self
 end
 
 function Noise:stop()
     self.running = false
-    if self.connection then
+    for _, connection in ipairs(self.connections) do
         pcall(function()
-            self.connection:Disconnect()
+            connection:Disconnect()
         end)
     end
-    self.connection = nil
+    self.connections = {}
     return self
 end
 
@@ -83,6 +132,7 @@ function Noise:pulse(now)
         reach = reach,
         alpha = active and (1 - progress) * 0.85 or 0,
         weight = self.pulseWeight,
+        source = self.lastSource,
     }
 end
 
@@ -108,6 +158,13 @@ function Noise:estimate(now)
         end
     end
     local puddle = self:pulse(now)
+    local available = {}
+    if self.event then
+        available[#available + 1] = "AudioMeter"
+    end
+    if self.pingEvent then
+        available[#available + 1] = "GamePing"
+    end
     local snapshot = {
         version = Noise.version,
         running = self.running,
@@ -126,7 +183,9 @@ function Noise:estimate(now)
         puddleRadius = puddle.radius,
         puddleReach = puddle.reach,
         puddleAlpha = puddle.alpha,
-        source = self.event and "AudioMeter" or "unavailable",
+        source = self.lastSource,
+        availableSources = available,
+        sourceCounts = self.sourceCounts,
     }
     self.lastSnapshot = snapshot
     return snapshot
@@ -139,7 +198,9 @@ end
 function Noise:destroy()
     self:stop()
     self.event = nil
+    self.pingEvent = nil
     self.threat = nil
+    self.sourceCounts = {}
     self.lastSnapshot = nil
 end
 

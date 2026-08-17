@@ -17,6 +17,7 @@ def test_threat_has_explicit_inferred_classification():
     assert "futurePath" in source
     assert "prediction" in source
     assert "futureSteps" in source
+    assert "setFutureStepTime" in source
 
 
 def test_threat_is_read_only():

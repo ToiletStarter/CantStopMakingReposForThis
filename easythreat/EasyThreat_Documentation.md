@@ -46,6 +46,7 @@ threat:paths()
 threat:snapshot()
 threat:setDangerRange(200)
 threat:setFutureSteps(8)
+threat:setFutureStepTime(0.25)
 threat:stop()
 threat:destroy()
 ```

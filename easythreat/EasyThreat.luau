@@ -3,7 +3,7 @@ local RunService = game:GetService("RunService")
 
 local Threat = {}
 Threat.__index = Threat
-Threat.version = "1.1.0"
+Threat.version = "1.2.0"
 
 local function child(root, name)
     if not root then
@@ -144,6 +144,11 @@ end
 
 function Threat:setFutureSteps(value)
     return self:setHistoryLimit(value)
+end
+
+function Threat:setFutureStepTime(value)
+    self.futureStepTime = math.max(0.05, tonumber(value) or self.futureStepTime)
+    return self
 end
 
 function Threat:_list()
