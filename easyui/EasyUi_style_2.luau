@@ -47,6 +47,8 @@ local Theme = {
 local SPRING = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local QUICK = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local POP = TweenInfo.new(0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local DROPDOWN = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local DRAG = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local function create(class, props, children)
     local inst = Instance.new(class)
@@ -122,24 +124,50 @@ local function hoverable(button, base, hover, target)
 end
 
 local function ripple(parent, accent)
-    local dot = create("Frame", {
-        BackgroundColor3 = accent,
-        BackgroundTransparency = 0.75,
-        Size = UDim2.fromOffset(0, 0),
+    local ring = create("Frame", {
+        BackgroundTransparency = 1,
+        Size = UDim2.fromOffset(6, 6),
         Position = UDim2.fromScale(0.5, 0.5),
         AnchorPoint = Vector2.new(0.5, 0.5),
         BorderSizePixel = 0,
         Parent = parent,
     })
-    corner(dot, 999)
-    local size = math.max(parent.AbsoluteSize.X, parent.AbsoluteSize.Y) * 1.6
-    tween(dot, TweenInfo.new(0.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-        Size = UDim2.fromOffset(size, size),
-        BackgroundTransparency = 1,
-    })
-    task.delay(0.45, function()
-        dot:Destroy()
+    corner(ring, 999)
+    local outline = stroke(ring, accent, 1, 0.15)
+    local size = math.min(math.max(parent.AbsoluteSize.X, parent.AbsoluteSize.Y) * 0.7, 42)
+    tween(ring, DROPDOWN, { Size = UDim2.fromOffset(size, size) })
+    tween(outline, DROPDOWN, { Transparency = 1 })
+    task.delay(0.2, function()
+        if ring.Parent then
+            ring:Destroy()
+        end
     end)
+end
+
+local function bindingName(binding)
+    if not binding then
+        return "NONE"
+    end
+    local ok, name = pcall(function()
+        return binding.Name
+    end)
+    return ok and name or tostring(binding)
+end
+
+local function inputBinding(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        return input.KeyCode
+    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.MouseButton2
+        or input.UserInputType == Enum.UserInputType.MouseButton3 then
+        return input.UserInputType
+    end
+    return nil
+end
+
+local function bindingMatches(binding, input)
+    return binding ~= nil and inputBinding(input) == binding
 end
 
 local function screenGui(name)
@@ -214,6 +242,9 @@ local function newSection(win, title)
     stroke(holder, Theme.Stroke, 1, 0.35)
     pad(holder, 10)
     local layout = list(holder, 7)
+    if win.ui._styleNodes then
+        table.insert(win.ui._styleNodes.cards, holder)
+    end
 
     if title and title ~= "" then
         local head = create("TextLabel", {
@@ -239,9 +270,13 @@ local function rowBase(section, height)
         BackgroundTransparency = 0.35,
         Size = UDim2.new(1, 0, 0, height or 30),
         BorderSizePixel = 0,
+        ClipsDescendants = true,
         Parent = section.holder,
     })
     corner(row, 7)
+    if section.ui._styleNodes then
+        table.insert(section.ui._styleNodes.rows, row)
+    end
     return row
 end
 
@@ -590,6 +625,7 @@ function Section:Dropdown(opts)
 
     local open = false
     local menu
+    local menuTween
 
     local w = Widget.new(self, "dropdown", row, opts)
     w._get = function()
@@ -607,31 +643,58 @@ function Section:Dropdown(opts)
     end
 
     local function close()
-        if menu then
-            local m = menu
-            menu = nil
-            tween(m, QUICK, { BackgroundTransparency = 1, Size = UDim2.fromOffset(m.Size.X.Offset, 0) })
-            task.delay(0.16, function()
-                m:Destroy()
-            end)
+        if not menu then
+            open = false
+            return
         end
         open = false
+        local m = menu
+        menu = nil
+        if menuTween then
+            pcall(function()
+                menuTween:Cancel()
+            end)
+        end
+        local targetX = chip.AbsolutePosition.X
+        local targetY = chip.AbsolutePosition.Y + chip.AbsoluteSize.Y + 4
+        menuTween = tween(m, DROPDOWN, {
+            Position = UDim2.fromOffset(targetX, targetY - 4),
+            Size = UDim2.fromOffset(chip.AbsoluteSize.X, 0),
+            BackgroundTransparency = 1,
+        })
+        task.delay(0.2, function()
+            if m.Parent then
+                m:Destroy()
+            end
+        end)
+    end
+
+    local function positionMenu()
+        if not menu then
+            return
+        end
+        menu.Position = UDim2.fromOffset(
+            chip.AbsolutePosition.X,
+            chip.AbsolutePosition.Y + chip.AbsoluteSize.Y + 4
+        )
     end
 
     chip.MouseButton1Click:Connect(function()
         if open then
-            return close()
+            close()
+            return
         end
         open = true
         local count = math.min(#options, 6)
+        local targetX = chip.AbsolutePosition.X
+        local targetY = chip.AbsolutePosition.Y + chip.AbsoluteSize.Y + 4
         menu = create("Frame", {
             BackgroundColor3 = Theme.Panel,
-            Position = UDim2.fromOffset(
-                chip.AbsolutePosition.X,
-                chip.AbsolutePosition.Y + chip.AbsoluteSize.Y + 4
-            ),
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(targetX, targetY - 4),
             Size = UDim2.fromOffset(chip.AbsoluteSize.X, 0),
             BorderSizePixel = 0,
+            ClipsDescendants = true,
             ZIndex = 60,
             Parent = ui.gui,
         })
@@ -675,7 +738,16 @@ function Section:Dropdown(opts)
                 close()
             end)
         end
-        tween(menu, SPRING, { Size = UDim2.fromOffset(chip.AbsoluteSize.X, count * 25 + 8) })
+        task.defer(function()
+            if menu then
+                positionMenu()
+                menuTween = tween(menu, DROPDOWN, {
+                    Position = UDim2.fromOffset(chip.AbsolutePosition.X, chip.AbsolutePosition.Y + chip.AbsoluteSize.Y + 4),
+                    Size = UDim2.fromOffset(chip.AbsoluteSize.X, count * 25 + 8),
+                    BackgroundTransparency = 0.03,
+                })
+            end
+        end)
     end)
 
     if opts.flag then
@@ -695,10 +767,10 @@ function Section:Keybind(opts)
     local chip = create("TextButton", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -8, 0.5, 0),
-        Size = UDim2.fromOffset(72, 21),
+        Size = UDim2.fromOffset(86, 21),
         BackgroundColor3 = Theme.Hover,
         Font = Theme.Mono,
-        Text = key and key.Name or "NONE",
+        Text = bindingName(key),
         TextSize = 10,
         TextColor3 = Theme.Sub,
         AutoButtonColor = false,
@@ -713,7 +785,7 @@ function Section:Keybind(opts)
     end
     w._set = function(v, silent)
         key = v
-        chip.Text = v and v.Name or "NONE"
+        chip.Text = bindingName(v)
         if opts.flag then
             ui:_writeFlag(opts.flag, v, w)
         end
@@ -724,26 +796,27 @@ function Section:Keybind(opts)
 
     chip.MouseButton1Click:Connect(function()
         listening = true
-        chip.Text = "..."
+        chip.Text = "PRESS INPUT"
         tween(chip, QUICK, { BackgroundColor3 = ui.accent })
     end)
 
     ui:_connect(UserInputService.InputBegan, function(input, gpe)
-        if listening and input.UserInputType == Enum.UserInputType.Keyboard then
+        local captured = inputBinding(input)
+        if listening and captured then
             listening = false
             tween(chip, QUICK, { BackgroundColor3 = Theme.Hover })
-            if input.KeyCode == Enum.KeyCode.Backspace then
+            if captured == Enum.KeyCode.Backspace then
                 w:Set(nil)
             else
-                w:Set(input.KeyCode)
+                w:Set(captured)
             end
             return
         end
         if gpe or listening or not key then
             return
         end
-        if input.KeyCode == key and opts.callback then
-            task.spawn(opts.callback)
+        if bindingMatches(key, input) and opts.callback then
+            task.spawn(opts.callback, input)
         end
     end)
 
@@ -970,11 +1043,144 @@ function Window:Tab(name)
         page = page,
         win = self,
         ui = ui,
+        _scroller = scroller,
+        _subtabs = {},
+        _subbar = nil,
+        _subactive = nil,
     }
     tab._page = scroller
 
     function tab:Section(title)
-        return newSection({ ui = ui, _page = scroller }, title)
+        return newSection({ ui = ui, _page = self._subactive and self._subactive.scroller or self._scroller }, title)
+    end
+
+    function tab:_selectSub(sub)
+        if self._subactive == sub then
+            return
+        end
+        for _, item in ipairs(self._subtabs) do
+            local active = item == sub
+            item.page.Visible = active
+            tween(item.label, QUICK, { TextColor3 = active and Theme.Text or Theme.Muted })
+            tween(item.button, QUICK, { BackgroundTransparency = active and 0.25 or 1 })
+            if active then
+                item.page.Position = UDim2.fromOffset(0, 4)
+                tween(item.page, QUICK, { Position = UDim2.fromOffset(0, 0) })
+            end
+        end
+        self._subactive = sub
+        if self._subindicator then
+            task.defer(function()
+                tween(self._subindicator, DROPDOWN, {
+                    Position = UDim2.fromOffset(sub.button.AbsolutePosition.X - self._subbar.AbsolutePosition.X, 0),
+                    Size = UDim2.fromOffset(sub.button.AbsoluteSize.X, 2),
+                })
+            end)
+        end
+    end
+
+    function tab:SubTab(subName)
+        if not self._subbar then
+            self._scroller.Visible = false
+            self._subbar = create("Frame", {
+                BackgroundTransparency = 1,
+                ZIndex = 10,
+                Size = UDim2.new(1, 0, 0, 24),
+                Parent = self.page,
+            })
+            list(self._subbar, 2, Enum.FillDirection.Horizontal)
+            local subline = create("Frame", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(0, 22),
+                Size = UDim2.new(1, 0, 0, 2),
+                ZIndex = 11,
+                Parent = self.page,
+            })
+            self._subindicator = create("Frame", {
+                BackgroundColor3 = ui.accent,
+                Size = UDim2.fromOffset(0, 2),
+                BorderSizePixel = 0,
+                Parent = subline,
+            })
+            corner(self._subindicator, 999)
+            ui:_accentBind(function()
+                self._subindicator.BackgroundColor3 = ui.accent
+            end)
+        end
+
+        local button = create("TextButton", {
+            BackgroundColor3 = Theme.Control,
+            BackgroundTransparency = 1,
+            ZIndex = 12,
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            Font = Theme.Medium,
+            Text = "",
+            TextSize = 10,
+            AutoButtonColor = false,
+            LayoutOrder = #self._subtabs + 1,
+            Parent = self._subbar,
+        })
+        corner(button, 6)
+        local label = create("TextLabel", {
+            BackgroundTransparency = 1,
+            ZIndex = 13,
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            Font = Theme.Medium,
+            Text = "  " .. subName .. "  ",
+            TextSize = 10,
+            TextColor3 = Theme.Muted,
+            Parent = button,
+        })
+        local subPage = create("ScrollingFrame", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(0, 30),
+            Size = UDim2.new(1, 0, 1, -30),
+            ZIndex = 1,
+            CanvasSize = UDim2.new(),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 2,
+            ScrollBarImageColor3 = Theme.Stroke,
+            BorderSizePixel = 0,
+            Visible = false,
+            Parent = self.page,
+        })
+        list(subPage, 8)
+        pad(subPage, 2)
+        local sub = {
+            name = subName,
+            button = button,
+            label = label,
+            page = subPage,
+            scroller = subPage,
+            tab = self,
+            ui = ui,
+        }
+        function sub:Section(title)
+            return newSection({ ui = ui, _page = self.scroller }, title)
+        end
+        function sub:Open()
+            self.tab:_selectSub(self)
+        end
+        table.insert(self._subtabs, sub)
+        button.MouseButton1Click:Connect(function()
+            self:_selectSub(sub)
+        end)
+        button.MouseEnter:Connect(function()
+            if self._subactive ~= sub then
+                tween(label, QUICK, { TextColor3 = Theme.Sub })
+            end
+        end)
+        button.MouseLeave:Connect(function()
+            if self._subactive ~= sub then
+                tween(label, QUICK, { TextColor3 = Theme.Muted })
+            end
+        end)
+        if #self._subtabs == 1 then
+            self:_selectSub(sub)
+        end
+        return sub
     end
 
     function tab:Open()
@@ -1030,17 +1236,27 @@ end
 
 function Window:SetVisible(v)
     self._visible = v
+    self._transition = (self._transition or 0) + 1
+    local token = self._transition
+    local position = self.frame.Position
     if v then
         self.frame.Visible = true
-        self.frame.Size = UDim2.fromOffset(self.width, 40)
+        self.frame.Position = UDim2.fromOffset(position.X.Offset, position.Y.Offset + 6)
         self.frame.BackgroundTransparency = 1
-        tween(self.frame, POP, { Size = UDim2.fromOffset(self.width, self.height) })
-        tween(self.frame, SPRING, { BackgroundTransparency = self.ui.transparency })
+        tween(self.frame, SPRING, {
+            Position = position,
+            BackgroundTransparency = self.ui.transparency,
+        })
     else
-        tween(self.frame, QUICK, { BackgroundTransparency = 1 })
-        local t = tween(self.frame, QUICK, { Size = UDim2.fromOffset(self.width, 40) })
-        t.Completed:Once(function()
-            self.frame.Visible = false
+        tween(self.frame, QUICK, {
+            Position = UDim2.fromOffset(position.X.Offset, position.Y.Offset + 6),
+            BackgroundTransparency = 1,
+        })
+        task.delay(0.16, function()
+            if self._transition == token then
+                self.frame.Visible = false
+                self.frame.Position = position
+            end
         end)
     end
     return self
@@ -1052,6 +1268,14 @@ end
 
 function Window:Toggle()
     return self:SetVisible(not self._visible)
+end
+
+function Window:SubTab(name)
+    local tab = self._active or self._tabs[1]
+    if not tab then
+        tab = self:Tab("Main")
+    end
+    return tab:SubTab(name)
 end
 
 function Window:Destroy()
@@ -1104,33 +1328,131 @@ function UI:SetAccent(color)
     return self
 end
 
+function UI:SetStyle(opts)
+    opts = opts or {}
+    if opts.windowColor then
+        for _, item in ipairs(self._styleNodes.windows) do
+            if item.Parent then
+                item.BackgroundColor3 = opts.windowColor
+            end
+        end
+    end
+    if opts.titlebarColor then
+        for _, item in ipairs(self._styleNodes.titlebars) do
+            if item.Parent then
+                item.BackgroundColor3 = opts.titlebarColor
+            end
+        end
+    end
+    if opts.cardColor then
+        for _, item in ipairs(self._styleNodes.cards) do
+            if item.Parent then
+                item.BackgroundColor3 = opts.cardColor
+            end
+        end
+    end
+    if opts.controlColor then
+        for _, item in ipairs(self._styleNodes.rows) do
+            if item.Parent then
+                item.BackgroundColor3 = opts.controlColor
+            end
+        end
+    end
+    if opts.windowTransparency ~= nil then
+        self.transparency = math.clamp(opts.windowTransparency, 0, 1)
+        for _, item in ipairs(self._styleNodes.windows) do
+            if item.Parent then
+                item.BackgroundTransparency = self.transparency
+            end
+        end
+    end
+    if opts.strokeColor then
+        for _, item in ipairs(self.gui:GetDescendants()) do
+            if item:IsA("UIStroke") then
+                item.Color = opts.strokeColor
+            end
+        end
+    end
+    if opts.textColor then
+        for _, item in ipairs(self.gui:GetDescendants()) do
+            if item:IsA("TextLabel") or item:IsA("TextButton") or item:IsA("TextBox") then
+                item.TextColor3 = opts.textColor
+            end
+        end
+    end
+    if opts.cornerRadius then
+        local radius = math.max(0, math.floor(opts.cornerRadius))
+        for _, item in ipairs(self.gui:GetDescendants()) do
+            if item:IsA("UICorner") then
+                item.CornerRadius = UDim.new(0, radius)
+            end
+        end
+    end
+    return self
+end
+
+function UI:Background(opts)
+    return self:SetStyle(opts)
+end
+
 function UI:Notify(opts)
     opts = opts or {}
     local kinds = { ok = Theme.Ok, warn = Theme.Warn, error = Theme.Err, info = Theme.Info }
     local col = kinds[opts.kind or "info"] or Theme.Info
+    self._toastEntries = self._toastEntries or {}
+
+    if not opts.priority then
+        local count = 0
+        for _, entry in ipairs(self._toastEntries) do
+            if not entry.priority and not entry.closed then
+                count = count + 1
+            end
+        end
+        if count >= 3 then
+            for _, entry in ipairs(self._toastEntries) do
+                if not entry.priority and not entry.closed then
+                    entry.closed = true
+                    if entry.card and entry.card.Parent then
+                        entry.card:Destroy()
+                    end
+                    break
+                end
+            end
+        end
+    end
 
     local card = create("Frame", {
         BackgroundColor3 = Theme.Panel,
-        BackgroundTransparency = 0.06,
+        BackgroundTransparency = 1,
         Size = UDim2.fromOffset(258, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         BorderSizePixel = 0,
+        ClipsDescendants = true,
+        LayoutOrder = self._toastSerial or 0,
         Parent = self._toasts,
     })
+    self._toastSerial = (self._toastSerial or 0) + 1
     corner(card, 10)
     stroke(card, Theme.Stroke, 1, 0.25)
-    pad(card, 10)
-    list(card, 3)
+    local content = create("Frame", {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        Parent = card,
+    })
+    pad(content, 10)
+    list(content, 3)
 
-    create("Frame", {
+    local rail = create("Frame", {
         BackgroundColor3 = col,
         Size = UDim2.fromOffset(3, 26),
-        Position = UDim2.fromOffset(-6, 0),
+        Position = UDim2.fromOffset(6, 10),
         BorderSizePixel = 0,
         Parent = card,
     })
+    corner(rail, 999)
 
-    create("TextLabel", {
+    local title = create("TextLabel", {
         BackgroundTransparency = 1,
         Size = UDim2.new(1, 0, 0, 15),
         Font = Theme.Bold,
@@ -1138,11 +1460,12 @@ function UI:Notify(opts)
         TextSize = 12,
         TextColor3 = col,
         TextXAlignment = Enum.TextXAlignment.Left,
-        Parent = card,
+        Parent = content,
     })
 
+    local body
     if opts.text then
-        create("TextLabel", {
+        body = create("TextLabel", {
             BackgroundTransparency = 1,
             Size = UDim2.new(1, 0, 0, 14),
             AutomaticSize = Enum.AutomaticSize.Y,
@@ -1152,33 +1475,85 @@ function UI:Notify(opts)
             TextColor3 = Theme.Sub,
             TextXAlignment = Enum.TextXAlignment.Left,
             TextWrapped = true,
-            Parent = card,
+            Parent = content,
         })
     end
-
-    card.Position = UDim2.fromOffset(28, 0)
-    card.BackgroundTransparency = 1
-    tween(card, SPRING, { Position = UDim2.fromOffset(0, 0), BackgroundTransparency = 0.06 })
 
     local bar = create("Frame", {
         BackgroundColor3 = col,
         BackgroundTransparency = 0.4,
+        AnchorPoint = Vector2.new(0, 1),
+        Position = UDim2.new(0, 0, 1, 0),
         Size = UDim2.new(1, 0, 0, 2),
         BorderSizePixel = 0,
         Parent = card,
     })
     corner(bar, 999)
 
-    local dur = opts.duration or 3.5
-    tween(bar, TweenInfo.new(dur, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 0, 2) })
+    local entry = {
+        card = card,
+        bar = bar,
+        title = title,
+        body = body,
+        priority = opts.priority == true,
+        closed = false,
+    }
+    table.insert(self._toastEntries, entry)
+    card.Position = UDim2.fromOffset(28, 0)
+    tween(card, SPRING, { Position = UDim2.fromOffset(0, 0), BackgroundTransparency = 0.06 })
 
-    task.delay(dur, function()
+    local duration = opts.duration or 3.5
+    tween(bar, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 0, 2) })
+
+    local function close()
+        if entry.closed then
+            return
+        end
+        entry.closed = true
         tween(card, QUICK, { Position = UDim2.fromOffset(28, 0), BackgroundTransparency = 1 })
-        task.delay(0.2, function()
-            card:Destroy()
+        task.delay(0.16, function()
+            if card.Parent then
+                card:Destroy()
+            end
         end)
-    end)
+    end
+
+    task.delay(duration, close)
     return card
+end
+
+function UI:SetGrouped(grouped)
+    self.grouped = grouped == true
+    if self.grouped and self.activeWindow then
+        self:ShowOnly(self.activeWindow)
+    end
+    return self
+end
+
+function UI:IsGrouped()
+    return self.grouped == true
+end
+
+function UI:ShowOnly(window)
+    self.activeWindow = window
+    for _, item in ipairs(self.windows) do
+        item:SetVisible(item == window)
+    end
+    return self
+end
+
+function UI:ShowAll()
+    for _, item in ipairs(self.windows) do
+        item:SetVisible(true)
+    end
+    return self
+end
+
+function UI:Popup(title, opts)
+    opts = opts or {}
+    opts.width = opts.width or 260
+    opts.height = opts.height or 220
+    return self:Window(title, opts)
 end
 
 function UI:Window(title, opts)
@@ -1197,7 +1572,7 @@ function UI:Window(title, opts)
         Parent = self.gui,
     })
     corner(frame, 12)
-    stroke(frame, Theme.Stroke, 1, 0.25)
+    local frameStroke = stroke(frame, Theme.Stroke, 1, 0.25)
 
     local titlebar = create("Frame", {
         BackgroundColor3 = Theme.Titlebar,
@@ -1207,6 +1582,10 @@ function UI:Window(title, opts)
         Parent = frame,
     })
     corner(titlebar, 12)
+    if self._styleNodes then
+        table.insert(self._styleNodes.windows, frame)
+        table.insert(self._styleNodes.titlebars, titlebar)
+    end
     create("Frame", {
         BackgroundColor3 = Theme.Titlebar,
         BackgroundTransparency = 0.25,
@@ -1298,6 +1677,7 @@ function UI:Window(title, opts)
         _indicator = indicator,
         _visible = true,
         _collapsed = false,
+        _frameStroke = frameStroke,
     }, Window)
 
     collapse.MouseButton1Click:Connect(function()
@@ -1319,30 +1699,84 @@ function UI:Window(title, opts)
         end
     end)
 
+    local resizeHandle = create("TextButton", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(1, -16, 1, -16),
+        Size = UDim2.fromOffset(16, 16),
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 25,
+        Parent = frame,
+    })
+    local resizeGrip = create("Frame", {
+        BackgroundColor3 = Theme.Muted,
+        BackgroundTransparency = 0.2,
+        Position = UDim2.fromOffset(8, 8),
+        Size = UDim2.fromOffset(6, 1),
+        Rotation = 45,
+        BorderSizePixel = 0,
+        ZIndex = 26,
+        Parent = resizeHandle,
+    })
+    local resizeGrip2 = resizeGrip:Clone()
+    resizeGrip2.Position = UDim2.fromOffset(10, 10)
+    resizeGrip2.Parent = resizeHandle
+
     local dragging, dragStart, startPos
+    local resizing, resizeStart, resizeSize
+    resizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = true
+            resizeStart = input.Position
+            resizeSize = frame.AbsoluteSize
+            self.activeWindow = win
+            tween(frameStroke, QUICK, { Transparency = 0.08, Thickness = 1.5 })
+        end
+    end)
+    self:_connect(UserInputService.InputChanged, function(input)
+        if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - resizeStart
+            local nextWidth = math.max(190, resizeSize.X + delta.X)
+            local nextHeight = math.max(120, resizeSize.Y + delta.Y)
+            tween(frame, DRAG, { Size = UDim2.fromOffset(nextWidth, nextHeight) })
+            win.width = nextWidth
+            win.height = nextHeight
+        end
+    end)
+    self:_connect(UserInputService.InputEnded, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 and resizing then
+            resizing = false
+            tween(frameStroke, QUICK, { Transparency = 0.25, Thickness = 1 })
+        end
+    end)
+
     titlebar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
-            tween(frame, QUICK, { BackgroundTransparency = math.max(self.transparency - 0.08, 0) })
+            self.activeWindow = win
+            tween(frame, QUICK, { BackgroundTransparency = math.max(self.transparency - 0.04, 0) })
+            tween(frameStroke, QUICK, { Transparency = 0.08, Thickness = 1.5 })
         end
     end)
     self:_connect(UserInputService.InputChanged, function(input)
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
             local d = input.Position - dragStart
-            frame.Position = UDim2.fromOffset(startPos.X.Offset + d.X, startPos.Y.Offset + d.Y)
+            tween(frame, DRAG, { Position = UDim2.fromOffset(startPos.X.Offset + d.X, startPos.Y.Offset + d.Y) })
         end
     end)
     self:_connect(UserInputService.InputEnded, function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 and dragging then
             dragging = false
             tween(frame, QUICK, { BackgroundTransparency = self.transparency })
+            tween(frameStroke, QUICK, { Transparency = 0.25, Thickness = 1 })
         end
     end)
 
     titlebar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            self.activeWindow = win
             for _, w in ipairs(self.windows) do
                 w.frame.ZIndex = 1
             end
@@ -1367,11 +1801,40 @@ function UI:SetVisible(v)
     if self._watermark then
         self._watermark.Visible = v
     end
+    if self._cursor then
+        self._cursor.Visible = v and self.cursorEnabled
+    end
     return self
 end
 
 function UI:Toggle()
     return self:SetVisible(not self.visible)
+end
+
+function UI:SetCursorVisible(v)
+    self.cursorEnabled = v == true
+    if self._cursor then
+        self._cursor.Visible = self.cursorEnabled and self.visible
+    end
+    return self
+end
+
+function UI:SetToggleKey(key)
+    self.toggleKey = key
+    if self._toggleConnection then
+        pcall(function()
+            self._toggleConnection:Disconnect()
+        end)
+        self._toggleConnection = nil
+    end
+    if key ~= false and key ~= nil then
+        self._toggleConnection = self:_connect(UserInputService.InputBegan, function(input, gpe)
+            if not gpe and bindingMatches(key, input) then
+                self:Toggle()
+            end
+        end)
+    end
+    return self
 end
 
 function UI:Destroy()
@@ -1381,6 +1844,11 @@ function UI:Destroy()
         end)
     end
     self._conns = {}
+    if self._cursor then
+        pcall(function()
+            UserInputService.MouseIconEnabled = self._mouseIconEnabled
+        end)
+    end
     if self.gui then
         self.gui:Destroy()
     end
@@ -1393,13 +1861,69 @@ function UI.new(opts)
     self.accent = opts.accent or Theme.Accent
     self.transparency = opts.transparency or 0.08
     self.visible = true
+    self.grouped = opts.grouped == true
+    self.toggleKey = opts.toggleKey == nil and Enum.KeyCode.RightShift or opts.toggleKey
+    self.cursorEnabled = opts.customCursor ~= false
     self.flags = {}
     self.windows = {}
     self._conns = {}
     self._widgets = {}
     self._accentBinds = {}
+    self._styleNodes = {
+        windows = {},
+        titlebars = {},
+        cards = {},
+        rows = {},
+    }
+    self._toastEntries = {}
+    self._toastSerial = 0
 
     self.gui = screenGui(opts.name or ("UI_" .. tostring(math.random(1e6, 9e6))))
+
+    self._mouseIconEnabled = UserInputService.MouseIconEnabled
+    if opts.customCursor ~= false then
+        local cursor = create("Frame", {
+            Name = "Cursor",
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(16, 16),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BorderSizePixel = 0,
+            ZIndex = 200,
+            Parent = self.gui,
+        })
+        corner(cursor, 999)
+        stroke(cursor, self.accent, 1, 0.12)
+        create("Frame", {
+            BackgroundColor3 = self.accent,
+            BackgroundTransparency = 0.1,
+            Size = UDim2.fromOffset(3, 3),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BorderSizePixel = 0,
+            ZIndex = 201,
+            Parent = cursor,
+        })
+        self._cursor = cursor
+        self:_accentBind(function()
+            local cursorStroke = cursor:FindFirstChildOfClass("UIStroke")
+            if cursorStroke then
+                cursorStroke.Color = self.accent
+            end
+            local dot = cursor:FindFirstChildOfClass("Frame")
+            if dot then
+                dot.BackgroundColor3 = self.accent
+            end
+        end)
+        pcall(function()
+            UserInputService.MouseIconEnabled = false
+        end)
+        self:_connect(RunService.RenderStepped, function()
+            if self._cursor and self._cursor.Parent then
+                local mouse = UserInputService:GetMouseLocation()
+                self._cursor.Position = UDim2.fromOffset(mouse.X, mouse.Y)
+            end
+        end)
+    end
 
     self._toasts = create("Frame", {
         Name = "Toasts",
@@ -1470,14 +1994,7 @@ function UI.new(opts)
         end)
     end
 
-    if opts.toggleKey ~= false then
-        local key = opts.toggleKey or Enum.KeyCode.RightShift
-        self:_connect(UserInputService.InputBegan, function(input, gpe)
-            if not gpe and input.KeyCode == key then
-                self:Toggle()
-            end
-        end)
-    end
+    self:SetToggleKey(self.toggleKey)
 
     return self
 end
@@ -1488,7 +2005,7 @@ UI.Toolkit = {
     Tween = tween,
     Corner = corner,
     Stroke = stroke,
-    Easing = { Spring = SPRING, Quick = QUICK, Pop = POP },
+    Easing = { Spring = SPRING, Quick = QUICK, Pop = POP, Dropdown = DROPDOWN, Drag = DRAG },
 }
 
 return UI

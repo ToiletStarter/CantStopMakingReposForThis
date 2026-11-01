@@ -62,13 +62,13 @@ Style 2 is deliberately smaller. If you need config profiles, the managed runtim
 
 ## Instance `M`
 
-`Window(title, opts)` · `SetVisible(v)` · `Toggle()` · `Get(flag)` · `Set(flag, v)` · `SetAccent(color)` · `Notify(opts)` · `Destroy()`
+`Window(title, opts)` · `SetVisible(v)` · `Toggle()` · `Get(flag)` · `Set(flag, v)` · `SetAccent(color)` · `SetStyle(opts)` · `SetGrouped(v)` · `ShowAll()` · `Notify(opts)` · `Destroy()`
 
 `M.flags` is the live flag table. `M.windows` is the window list.
 
 ## Window
 
-`Tab(name)` · `SetVisible(v)` · `GetVisible()` · `Toggle()` · `Destroy()`
+`Tab(name)` · `SubTab(name)` · `SetVisible(v)` · `GetVisible()` · `Toggle()` · `Destroy()`
 
 ```lua
 local w = M:Window("Visuals", { x = 370, y = 90, width = 280, height = 260 })
@@ -80,13 +80,13 @@ local w = M:Window("Visuals", { x = 370, y = 90, width = 280, height = 260 })
 | `width` | `300` |
 | `height` | `340` |
 
-Windows drag by the titlebar, raise on click, and collapse to the titlebar with the `—` button.
+Windows drag by the titlebar, raise on click, collapse to the titlebar with the `—` button, and resize from the bottom-right grip. Minimum size is 190×120 pixels.
 
 ## Tab
 
-`Section(title)` · `Open()`
+`Section(title)` · `SubTab(name)` · `Open()`
 
-Tabs animate in and the accent indicator glides to the active tab.
+Tabs animate in and the accent indicator glides to the active tab. Subtab pages render below a dedicated, visible subtab strip and keep their own section layout.
 
 ## Section widgets
 
@@ -123,7 +123,7 @@ section:Slider({
 section:Dropdown({ text = "Style", flag = "esp.style", options = { "Corner", "Full" }, default = "Corner" })
 ```
 
-The popup is a scrolling list capped at six visible rows and rendered at GUI root so it is never clipped by the window.
+The popup is a scrolling list capped at six visible rows and rendered at GUI root so it is never clipped by the window. It opens below the exact control position, animates from a four-pixel offset, and repositions from the control's current screen position.
 
 ### Keybind
 
@@ -134,7 +134,7 @@ section:Keybind({ text = "Aim key", flag = "aim.key", default = Enum.KeyCode.C,
 })
 ```
 
-Click the chip, press a key. `Backspace` clears the binding.
+Click the chip, then press a keyboard key or mouse button. `Backspace` clears the binding.
 
 ### Textbox
 
@@ -175,14 +175,31 @@ print(M:Get("esp.on"))
 ## Notifications
 
 ```lua
-M:Notify({ title = "rotware", text = "Everything nominal.", kind = "ok", duration = 3.5 })
+M:Notify({ title = "rotware", text = "Everything nominal.", kind = "ok", duration = 3.5, priority = false })
 ```
 
-Kinds: `ok`, `warn`, `error`, `info`. Toasts stack bottom-right, slide in from the right, and drain a progress bar for their duration.
+Kinds: `ok`, `warn`, `error`, `info`. Toasts stack bottom-right, slide in from the right, and drain a progress bar for their duration. Three normal notifications are kept active; `priority = true` bypasses that cap.
 
 ## Accent
 
-`M:SetAccent(color)` repaints every accent-driven element live — window dots, tab indicator, toggle tracks, slider fills, watermark dot.
+`M:SetAccent(color)` repaints every accent-driven element live — window dots, tab indicators, toggle tracks, slider fills, watermark dot and custom cursor.
+
+## Style controls
+
+```lua
+M:SetStyle({
+    windowColor = Color3.fromRGB(18, 19, 23),
+    titlebarColor = Color3.fromRGB(26, 28, 34),
+    cardColor = Color3.fromRGB(28, 30, 36),
+    controlColor = Color3.fromRGB(35, 37, 44),
+    windowTransparency = 0.08,
+    strokeColor = Color3.fromRGB(52, 56, 66),
+    textColor = Color3.fromRGB(238, 240, 245),
+    cornerRadius = 10,
+})
+```
+
+`Background(opts)` is an alias for `SetStyle(opts)`. Style changes apply to all existing windows, titlebars, sections, controls, strokes, text and corners owned by the UI instance.
 
 ## Toolkit
 
@@ -213,3 +230,5 @@ Fonts resolve `BuilderSans` → `Gotham` → `SourceSans`, so it renders on clie
 - `DisplayOrder` is `9999`.
 - Only the library's own `ScreenGui` is created or mutated. No remotes, no `workspace` writes, no other-player access.
 - `M:Destroy()` disconnects every input connection and removes the GUI.
+- The custom cursor is an owned ScreenGui element and restores `MouseIconEnabled` on destroy.
+- Host-side Potassium capture is the supported visual verification path: `potagent shot <label>`.
