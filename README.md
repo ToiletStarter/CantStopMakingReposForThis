@@ -285,7 +285,7 @@ The library only creates and mutates **its own `ScreenGui`** and reads client-lo
 
 # EasyUI Style 2
 
-A second visual style for EasyUI, in its own file. Same authoring shape — `UI.new` → `Window` → `Tab` → `Section` → widgets — with a different look: floating multi-window panels, translucent dark surfaces, an accent dot per window, spring animations and a bottom-right toast stack.
+A second visual style for EasyUI, in its own file. Same authoring shape — `UI.new` → `Window` → `Tab` → `SubTab` → `Section` → widgets — with a different look: floating multi-window panels, translucent dark surfaces, an accent dot per window, spring animations and a bottom-right toast stack.
 
 Where EasyUI is one window with a tab strip, Style 2 is many small windows you scatter and collapse independently. Loading it does not affect `EasyUiTesting.luau`; both can run at once.
 
@@ -321,17 +321,18 @@ M:Notify({ title = "rotware", text = "Loaded.", kind = "ok" })
 
 ## Highlights
 
-- **Multi-window:** every `M:Window` is an independent draggable panel with its own tabs, raise-on-click and a collapse button.
+- **Multi-window:** every `M:Window` is an independent draggable and resizable panel with its own tabs, subtabs, raise-on-click and a collapse button. `M:SetGrouped`, `M:ShowOnly` and `M:ShowAll` support focused and ungrouped layouts.
 - **Widgets:** toggle, button, slider (decimals, suffix, grab-grow knob), dropdown (scrolling popup at GUI root), keybind (click-to-listen, `Backspace` clears), textbox, colorpicker (inline hue strip), label, divider, badge.
-- **Motion:** Quint/Back springs, click ripples, sliding tab indicator, page slide-in.
-- **Toasts:** bottom-right stack, colored rail, draining progress bar.
+- **Motion:** Quint/Back springs, contained ring feedback, sliding tab indicators, page slide-in, eased dropdown placement and drag/resize emphasis.
+- **Toasts:** bottom-right stack, colored rail, draining progress bar, three-normal-notification cap and priority bypass.
 - **Flags:** `M:Get` / `M:Set`; two widgets sharing a flag stay in sync without re-firing callbacks.
-- **Live accent:** `M:SetAccent(color)` repaints dots, indicators, toggle tracks and slider fills.
+- **Live accent:** `M:SetAccent(color)` repaints dots, indicators, toggle tracks, slider fills and the custom cursor.
+- **Style API:** `M:SetStyle` / `M:Background` updates window, titlebar, card, control, stroke, text, opacity and corner styling for the owned UI.
 - **Watermark:** title with live fps and ping.
 
 ## Scope
 
-Style 2 is deliberately smaller than EasyUI. No subtabs, config profiles, managed runtime, context menus, media import or `AttachESP` — use `EasyUiTesting.luau` when you need those.
+Style 2 is deliberately smaller than EasyUI. It does not include config profiles, managed runtime, context menus, media import or `AttachESP` — use `EasyUiTesting.luau` when you need those.
 
 ---
 
