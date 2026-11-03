@@ -908,6 +908,11 @@ The table you hand to `addEnt(id, spec)`. `addEnt` normalises five fields in pla
 | `size` | `Vector3` | `Vector3.new(3, 4, 3)` | Box dimensions, used **only** when `get` returns a `Vector3`. `BasePart` uses `Size`, `Model` uses `GetBoundingBox()`. |
 | `dot` | boolean | `nil` (off) | Filled 3px 12-sided dot at the bottom-centre of the box. |
 | `tracer` | boolean | `nil` (off) | 1px line from the bottom-centre of the screen to the bottom-centre of the box. Not configurable per group — it ignores `cfg.tracer`. |
+| `visCheck` | boolean | `false` | Raycast from the camera to the entity before drawing; read-only occlusion check. |
+| `hideOccluded` | boolean | `false` | Suppress the entity when `visCheck` reports an obstruction. |
+| `visTint` | boolean | `false` | Use `visibleColor` or `hiddenColor` for all entity drawing primitives. |
+| `visibleColor` | `Color3` | `spec.col` | Color used when the occlusion check is clear. |
+| `hiddenColor` | `Color3` | red | Color used when the occlusion check is blocked. |
 | `ring` | ring spec table | `nil` | World ring at `pos - Vector3.new(0, size.Y/2, 0)`, always drawn at LOD 0. **Normalised through `ringSpec()` by `addEnt`**, so a partial table is filled with ring defaults. Assigning `spec.ring` *after* registration skips that normalisation — pass it at registration, or run it through `ESP.Toolkit.ring(...)` yourself. |
 | `draw` | `function(esp, id, obj, pos, x, y, w, h, dist)` | `nil` | Called last, inside `pcall`, with the drawn id (including the `_i` suffix for arrays), the object, its world position, the box rect and the distance. Use it for custom pooled drawings. |
 

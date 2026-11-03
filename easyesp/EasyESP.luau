@@ -2578,6 +2578,33 @@ function ESP:_self()
     end
 end
 
+function ESP:_entityVisible(obj, pos)
+    if not cam or typeof(pos) ~= "Vector3" then
+        return true
+    end
+    local origin = cam.CFrame.Position
+    local direction = pos - origin
+    if direction.Magnitude <= 0.01 then
+        return true
+    end
+    local excludes = {}
+    local localPlayer = Players.LocalPlayer
+    if localPlayer and localPlayer.Character then
+        table.insert(excludes, localPlayer.Character)
+    end
+    if typeof(obj) == "Instance" then
+        local target = obj:IsA("Model") and obj or obj:FindFirstAncestorOfClass("Model") or obj
+        table.insert(excludes, target)
+    end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = excludes
+    local ok, hit = pcall(function()
+        return workspace:Raycast(origin, direction, params)
+    end)
+    return ok and hit == nil
+end
+
 function ESP:_ents()
     if not cam then
         return
@@ -2613,16 +2640,27 @@ function ESP:_ents()
         if emax > 0 and dist > emax then return end
         local _, _, d, on = self._proj(pos)
         if not on or d <= 0 then return end
+        local visible = true
+        if e.visCheck or e.hideOccluded or e.visTint then
+            visible = self:_entityVisible(obj, pos)
+            if e.hideOccluded and not visible then
+                return
+            end
+        end
+        local drawCol = e.col
+        if e.visTint then
+            drawCol = visible and (e.visibleColor or e.col) or (e.hiddenColor or Color3.fromRGB(255, 95, 105))
+        end
         local lx, ly, bw, bh = box2d(pivot, size, self._proj)
         if not lx then return end
         if e.box then
             if e.outline ~= false then
                 self.pool:box("ent_b0" .. id, lx - 1, ly - 1, bw + 2, bh + 2, BLACK, false, 2, 1)
             end
-            self.pool:box("ent_b1" .. id, lx, ly, bw, bh, e.col, false, 1, 1)
+            self.pool:box("ent_b1" .. id, lx, ly, bw, bh, drawCol, false, 1, 1)
         end
         if e.dot then
-            self.pool:dot("ent_d" .. id, lx + bw * 0.5, ly + bh, 3, e.col, true, 1, 12)
+            self.pool:dot("ent_d" .. id, lx + bw * 0.5, ly + bh, 3, drawCol, true, 1, 12)
         end
         if e.name and e.label then
             local ok, label = true, e.label
@@ -2630,14 +2668,14 @@ function ESP:_ents()
                 ok, label = pcall(e.label, obj)
             end
             if ok and label and label ~= "" then
-                self.pool:txt("ent_n" .. id, tostring(label), lx + bw * 0.5, ly - 16, 12, e.col, true, FONT, true)
+                self.pool:txt("ent_n" .. id, tostring(label), lx + bw * 0.5, ly - 16, 12, drawCol, true, FONT, true)
             end
         end
         if e.dist then
-            self.pool:txt("ent_m" .. id, mstr(dist), lx + bw * 0.5, ly + bh + 3, 10, e.col, true, FONT, true)
+            self.pool:txt("ent_m" .. id, mstr(dist), lx + bw * 0.5, ly + bh + 3, 10, drawCol, true, FONT, true)
         end
         if e.tracer then
-            self.pool:line("ent_t" .. id, vp.X * 0.5, vp.Y, lx + bw * 0.5, ly + bh, e.col, 1, 1)
+            self.pool:line("ent_t" .. id, vp.X * 0.5, vp.Y, lx + bw * 0.5, ly + bh, drawCol, 1, 1)
         end
         if e.ring then
             self:_ring("ent_r" .. id, pos - v3(0, size.Y * 0.5, 0), e.ring, 0)

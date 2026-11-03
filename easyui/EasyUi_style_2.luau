@@ -197,13 +197,17 @@ local Widget = {}
 Widget.__index = Widget
 
 function Widget.new(owner, kind, frame, opts)
-    return setmetatable({
+    local widget = setmetatable({
         owner = owner,
         kind = kind,
         frame = frame,
         opts = opts or {},
         flag = opts and opts.flag,
     }, Widget)
+    if widget.opts.context and owner.ui and owner.ui._bindContext then
+        owner.ui:_bindContext(widget, frame, widget.opts.context)
+    end
+    return widget
 end
 
 function Widget:Set(value, silent)
@@ -229,6 +233,13 @@ end
 local Section = {}
 Section.__index = Section
 
+local Grid = {}
+Grid.__index = Grid
+
+local function childSection(ui, holder)
+    return setmetatable({ ui = ui, holder = holder, layout = list(holder, ui.compact and 4 or 6), inline = true }, Section)
+end
+
 local function newSection(win, title)
     local holder = create("Frame", {
         BackgroundColor3 = Theme.Card,
@@ -240,8 +251,8 @@ local function newSection(win, title)
     })
     corner(holder, 10)
     stroke(holder, Theme.Stroke, 1, 0.35)
-    pad(holder, 10)
-    local layout = list(holder, 7)
+    pad(holder, win.ui.compact and 8 or 10)
+    local layout = list(holder, win.ui.compact and 4 or 7)
     if win.ui._styleNodes then
         table.insert(win.ui._styleNodes.cards, holder)
     end
@@ -268,7 +279,7 @@ local function rowBase(section, height)
     local row = create("Frame", {
         BackgroundColor3 = Theme.Control,
         BackgroundTransparency = 0.35,
-        Size = UDim2.new(1, 0, 0, height or 30),
+        Size = UDim2.new(1, 0, 0, height or (section.ui.compact and 26 or 30)),
         BorderSizePixel = 0,
         ClipsDescendants = true,
         Parent = section.holder,
@@ -318,6 +329,55 @@ function Section:Label(text)
     return w
 end
 
+function Section:Grid(columns, opts)
+    opts = opts or {}
+    columns = math.max(1, math.floor(tonumber(columns) or 2))
+    local gap = opts.gap or (self.ui.compact and 5 or 7)
+    local frame = create("Frame", {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BorderSizePixel = 0,
+        Parent = self.holder,
+    })
+    list(frame, gap, Enum.FillDirection.Horizontal)
+    local items = {}
+    local offset = -gap * (columns - 1) / columns
+    for i = 1, columns do
+        local column = create("Frame", {
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1 / columns, offset, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BorderSizePixel = 0,
+            LayoutOrder = i,
+            Parent = frame,
+        })
+        items[i] = childSection(self.ui, column)
+    end
+    return setmetatable({ section = self, frame = frame, columns = items }, Grid)
+end
+
+function Section:Columns(columns, opts)
+    return self:Grid(columns, opts)
+end
+
+function Grid:Column(index)
+    return self.columns[index or 1]
+end
+
+function Grid:Each(callback)
+    for index, column in ipairs(self.columns) do
+        callback(column, index)
+    end
+    return self
+end
+
+function Grid:Destroy()
+    if self.frame then
+        self.frame:Destroy()
+    end
+end
+
 function Section:Divider()
     local d = create("Frame", {
         BackgroundColor3 = Theme.Stroke,
@@ -360,7 +420,7 @@ end
 function Section:Toggle(opts)
     opts = opts or {}
     local ui = self.ui
-    local row = rowBase(self, 30)
+    local row = rowBase(self)
     rowLabel(row, opts.text)
 
     local track = create("Frame", {
@@ -437,7 +497,7 @@ end
 function Section:Button(opts)
     opts = opts or {}
     local ui = self.ui
-    local row = rowBase(self, 30)
+    local row = rowBase(self)
     local btn = create("TextButton", {
         BackgroundTransparency = 1,
         Size = UDim2.fromScale(1, 1),
@@ -464,11 +524,15 @@ function Section:Slider(opts)
     local maxv = opts.max or 100
     local decimals = opts.decimals or 0
     local value = math.clamp(opts.default or minv, minv, maxv)
+    local sliderHeight = ui.compact and 38 or 42
+    local sliderLabelY = ui.compact and 3 or 4
+    local sliderTrackY = ui.compact and 24 or 27
+    local sliderHitY = ui.compact and 17 or 20
 
     local row = create("Frame", {
         BackgroundColor3 = Theme.Control,
         BackgroundTransparency = 0.35,
-        Size = UDim2.new(1, 0, 0, 42),
+        Size = UDim2.new(1, 0, 0, sliderHeight),
         BorderSizePixel = 0,
         Parent = self.holder,
     })
@@ -476,7 +540,7 @@ function Section:Slider(opts)
 
     local label = create("TextLabel", {
         BackgroundTransparency = 1,
-        Position = UDim2.fromOffset(10, 4),
+        Position = UDim2.fromOffset(10, sliderLabelY),
         Size = UDim2.new(1, -60, 0, 15),
         Font = Theme.Font,
         Text = opts.text or "Slider",
@@ -500,7 +564,7 @@ function Section:Slider(opts)
     })
 
     local track = create("Frame", {
-        Position = UDim2.new(0, 10, 0, 27),
+        Position = UDim2.new(0, 10, 0, sliderTrackY),
         Size = UDim2.new(1, -20, 0, 4),
         BackgroundColor3 = Theme.Hover,
         BorderSizePixel = 0,
@@ -559,7 +623,7 @@ function Section:Slider(opts)
     local dragging = false
     local hit = create("TextButton", {
         BackgroundTransparency = 1,
-        Position = UDim2.new(0, 4, 0, 20),
+        Position = UDim2.new(0, 4, 0, sliderHitY),
         Size = UDim2.new(1, -8, 0, 18),
         Text = "",
         Parent = row,
@@ -606,7 +670,7 @@ function Section:Dropdown(opts)
     local options = opts.options or {}
     local value = opts.default or options[1]
 
-    local row = rowBase(self, 30)
+    local row = rowBase(self)
     rowLabel(row, opts.text)
 
     local chip = create("TextButton", {
@@ -761,7 +825,7 @@ function Section:Keybind(opts)
     opts = opts or {}
     local ui = self.ui
     local key = opts.default
-    local row = rowBase(self, 30)
+    local row = rowBase(self)
     rowLabel(row, opts.text)
 
     local chip = create("TextButton", {
@@ -829,7 +893,7 @@ end
 function Section:Textbox(opts)
     opts = opts or {}
     local ui = self.ui
-    local row = rowBase(self, 30)
+    local row = rowBase(self)
     rowLabel(row, opts.text)
     local box = create("TextBox", {
         AnchorPoint = Vector2.new(1, 0.5),
@@ -878,7 +942,8 @@ function Section:Colorpicker(opts)
     opts = opts or {}
     local ui = self.ui
     local value = opts.default or ui.accent
-    local row = rowBase(self, 30)
+    local row = rowBase(self)
+    local baseHeight = ui.compact and 26 or 30
     rowLabel(row, opts.text)
 
     local swatch = create("TextButton", {
@@ -918,7 +983,7 @@ function Section:Colorpicker(opts)
                 tray:Destroy()
                 tray = nil
             end
-            row.Size = UDim2.new(1, 0, 0, 30)
+            row.Size = UDim2.new(1, 0, 0, baseHeight)
             return
         end
         expanded = true
@@ -1282,6 +1347,169 @@ function Window:Destroy()
     self.frame:Destroy()
 end
 
+function UI:_closeContext()
+    if self._contextInput then
+        pcall(function()
+            self._contextInput:Disconnect()
+        end)
+        self._contextInput = nil
+    end
+    if self._contextPopup then
+        self._contextPopup:Destroy()
+        self._contextPopup = nil
+    end
+end
+
+function UI:_bindContext(widget, frame, builder)
+    self:_connect(frame.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            self:_showContext(widget, builder)
+        end
+    end)
+end
+
+function UI:_showContext(widget, builder)
+    self:_closeContext()
+    local ok, entries = pcall(function()
+        return type(builder) == "function" and builder(widget, self) or builder
+    end)
+    if not ok or type(entries) ~= "table" or #entries == 0 then
+        return
+    end
+    local mouse = UserInputService:GetMouseLocation()
+    local height = 14 + #entries * 30
+    local camera = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(800, 600)
+    local x = math.clamp(mouse.X, 4, math.max(4, viewport.X - 224))
+    local y = math.clamp(mouse.Y, 4, math.max(4, viewport.Y - height - 4))
+    local menu = create("Frame", {
+        Name = "ContextMenu",
+        BackgroundColor3 = Theme.Panel,
+        BackgroundTransparency = 0.02,
+        Position = UDim2.fromOffset(x, y),
+        Size = UDim2.fromOffset(220, height),
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 100,
+        Parent = self.gui,
+    })
+    corner(menu, 8)
+    stroke(menu, Theme.Stroke, 1, 0.1)
+    pad(menu, 5)
+    list(menu, 3)
+    self._contextPopup = menu
+    local function reopen()
+        if menu.Parent then
+            self:_showContext(widget, builder)
+        end
+    end
+    for index, entry in ipairs(entries) do
+        if type(entry) == "table" and entry.kind == "color" and type(entry.colors) == "table" then
+            local row = create("Frame", {
+                BackgroundColor3 = Theme.Control,
+                BackgroundTransparency = 0.15,
+                Size = UDim2.new(1, 0, 0, 26),
+                LayoutOrder = index,
+                ZIndex = 101,
+                Parent = menu,
+            })
+            corner(row, 5)
+            local label = create("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(7, 0),
+                Size = UDim2.new(0.48, 0, 1, 0),
+                Font = Theme.Font,
+                Text = tostring(entry.text or "Color"),
+                TextSize = 10,
+                TextColor3 = Theme.Sub,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 102,
+                Parent = row,
+            })
+            for colorIndex, colorEntry in ipairs(entry.colors) do
+                local color = type(colorEntry) == "table" and colorEntry.color or colorEntry
+                local name = type(colorEntry) == "table" and colorEntry.name or tostring(colorIndex)
+                local swatch = create("TextButton", {
+                    BackgroundColor3 = color,
+                    Position = UDim2.new(0.48, (colorIndex - 1) * 21, 0.5, -8),
+                    Size = UDim2.fromOffset(16, 16),
+                    Text = "",
+                    AutoButtonColor = false,
+                    ZIndex = 103,
+                    Parent = row,
+                })
+                swatch.Name = name
+                corner(swatch, 4)
+                swatch.MouseButton1Click:Connect(function()
+                    if entry.set then
+                        pcall(entry.set, color, widget, self)
+                    end
+                    reopen()
+                end)
+            end
+        else
+            local button = create("TextButton", {
+                BackgroundColor3 = Theme.Control,
+                BackgroundTransparency = 0.15,
+                Size = UDim2.new(1, 0, 0, 26),
+                Font = Theme.Font,
+                Text = tostring(entry.text or "Option"),
+                TextSize = 10,
+                TextColor3 = Theme.Text,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                AutoButtonColor = false,
+                LayoutOrder = index,
+                ZIndex = 101,
+                Parent = menu,
+            })
+            corner(button, 5)
+            pad(button, 0, { PaddingLeft = 7, PaddingRight = 7 })
+            if entry.kind == "toggle" then
+                local value = false
+                if entry.get then
+                    pcall(function()
+                        value = entry.get(widget, self) and true or false
+                    end)
+                end
+                button.Text = tostring(entry.text or "Option") .. "  " .. (value and "ON" or "OFF")
+                button.TextColor3 = value and self.accent or Theme.Sub
+            end
+            button.MouseEnter:Connect(function()
+                tween(button, QUICK, { BackgroundColor3 = Theme.Hover })
+            end)
+            button.MouseLeave:Connect(function()
+                tween(button, QUICK, { BackgroundColor3 = Theme.Control })
+            end)
+            button.MouseButton1Click:Connect(function()
+                if entry.kind == "toggle" then
+                    local value = false
+                    if entry.get then
+                        pcall(function()
+                            value = entry.get(widget, self) and true or false
+                        end)
+                    end
+                    if entry.set then
+                        pcall(entry.set, not value, widget, self)
+                    end
+                elseif entry.set then
+                    pcall(entry.set, widget, self)
+                end
+                reopen()
+            end)
+        end
+    end
+    self._contextInput = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
+        local point = UserInputService:GetMouseLocation()
+        local inside = point.X >= menu.AbsolutePosition.X and point.X <= menu.AbsolutePosition.X + menu.AbsoluteSize.X and point.Y >= menu.AbsolutePosition.Y and point.Y <= menu.AbsolutePosition.Y + menu.AbsoluteSize.Y
+        if not inside then
+            self:_closeContext()
+        end
+    end)
+end
+
 function UI:_connect(signal, fn)
     local c = signal:Connect(fn)
     self._conns[#self._conns + 1] = c
@@ -1295,11 +1523,17 @@ end
 
 function UI:_writeFlag(flag, value, source)
     self.flags[flag] = value
+    self._syncingFlags = self._syncingFlags or {}
+    if self._syncingFlags[flag] then
+        return
+    end
+    self._syncingFlags[flag] = true
     for _, w in ipairs(self._widgets[flag] or {}) do
         if w ~= source then
             w:Set(value, true)
         end
     end
+    self._syncingFlags[flag] = nil
 end
 
 function UI:_accentBind(fn)
@@ -1613,7 +1847,7 @@ function UI:Window(title, opts)
         Position = UDim2.fromOffset(24, 0),
         Size = UDim2.new(1, -60, 1, 0),
         Font = Theme.Medium,
-        Text = self.title .. ": " .. tostring(title),
+        Text = self.title .. self.separator .. tostring(title),
         TextSize = 11,
         TextColor3 = Theme.Sub,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -1803,6 +2037,9 @@ function UI:SetVisible(v)
     end
     if self._cursor then
         self._cursor.Visible = v and self.cursorEnabled
+        pcall(function()
+            UserInputService.MouseIconEnabled = not (v and self.cursorEnabled) and self._mouseIconEnabled or false
+        end)
     end
     return self
 end
@@ -1815,6 +2052,9 @@ function UI:SetCursorVisible(v)
     self.cursorEnabled = v == true
     if self._cursor then
         self._cursor.Visible = self.cursorEnabled and self.visible
+        pcall(function()
+            UserInputService.MouseIconEnabled = self.cursorEnabled and self.visible and false or self._mouseIconEnabled
+        end)
     end
     return self
 end
@@ -1838,6 +2078,7 @@ function UI:SetToggleKey(key)
 end
 
 function UI:Destroy()
+    self:_closeContext()
     for _, c in ipairs(self._conns) do
         pcall(function()
             c:Disconnect()
@@ -1858,12 +2099,14 @@ function UI.new(opts)
     opts = opts or {}
     local self = setmetatable({}, UI)
     self.title = opts.title or "rotware"
+    self.separator = opts.separator or " | "
+    self.compact = opts.compact == true
     self.accent = opts.accent or Theme.Accent
     self.transparency = opts.transparency or 0.08
     self.visible = true
     self.grouped = opts.grouped == true
     self.toggleKey = opts.toggleKey == nil and Enum.KeyCode.RightShift or opts.toggleKey
-    self.cursorEnabled = opts.customCursor ~= false
+    self.cursorEnabled = opts.customCursor ~= false and opts.cursor ~= false
     self.flags = {}
     self.windows = {}
     self._conns = {}

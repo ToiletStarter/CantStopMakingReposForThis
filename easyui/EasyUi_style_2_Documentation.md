@@ -1,10 +1,8 @@
 # EasyUI Style 2
 
-A second visual style for EasyUI. Same authoring shape — `UI.new` → `Window` → `Tab` → `Section` → widgets — with a different look: floating multi-window panels, translucent dark surfaces, an accent dot per window, spring animations and a toast stack.
+A second visual style for EasyUI. Same authoring shape — `UI.new` → `Window` → `Tab` → `Section` → widgets — with a different look: floating multi-window panels, springs, toast stack, compact density, and optional horizontal control grids.
 
-Where `EasyUiTesting.luau` is one large window with a tab strip, `EasyUi_style_2.luau` is many small windows you scatter across the screen and collapse independently.
-
-It is a separate file. Loading it does not change `EasyUiTesting.luau`, and both can run at once.
+Where `EasyUiTesting.luau` is one large window with a tab strip, `EasyUi_style_2.luau` supports both scattered windows and a single tailored window with horizontal groups. Loading it does not change `EasyUiTesting.luau`, and both can run at once.
 
 ## Install
 
@@ -57,6 +55,9 @@ Style 2 is deliberately smaller. If you need config profiles, the managed runtim
 | `accent` | `#60CDFF` | accent color, live-swappable |
 | `transparency` | `0.08` | window background transparency |
 | `toggleKey` | `RightShift` | key to show/hide everything; `false` disables |
+| `separator` | `" | "` | text between the UI title and window titlebar label |
+| `compact` | `false` | reduces section padding, row height, and slider height |
+| `cursor` | `true` | alias for `customCursor`; when false the native cursor remains visible |
 | `watermark` | `true` | top-left pill with live fps and ping |
 | `name` | random | `ScreenGui` name |
 
@@ -87,6 +88,16 @@ Windows drag by the titlebar, raise on click, collapse to the titlebar with the 
 `Section(title)` · `SubTab(name)` · `Open()`
 
 Tabs animate in and the accent indicator glides to the active tab. Subtab pages render below a dedicated, visible subtab strip and keep their own section layout.
+
+## Section layout
+
+`section:Grid(columns, opts)` creates horizontal columns that accept the same widget methods as a section. `section:Columns(...)` is an alias. Use `grid:Column(index)` to target a column or `grid:Each(fn)` to iterate them. `compact = true` reduces the default vertical spacing for dense panels.
+
+```lua
+local layout = section:Grid(2, { gap = 5 })
+layout:Column(1):Toggle({ text = "Names", flag = "esp.names", default = true })
+layout:Column(2):Toggle({ text = "Health", flag = "esp.health", default = true })
+```
 
 ## Section widgets
 
@@ -151,6 +162,26 @@ end })
 ```
 
 Clicking the swatch expands an inline hue strip inside the row.
+
+Every widget may receive a `context` builder. Right-clicking the widget opens a compact menu. A context entry can be a `toggle`, `color`, or action entry; color entries render a palette and call `set(color, widget, ui)`.
+
+```lua
+section:Toggle({
+    text = "Tracers",
+    flag = "esp.tracers",
+    context = function()
+        return {
+            { kind = "toggle", text = "Hide occluded", get = function() return false end, set = function(v) end },
+            { kind = "color", text = "Color", colors = {
+                { name = "Cyan", color = Color3.fromRGB(100, 200, 255) },
+                { name = "Gold", color = Color3.fromRGB(255, 210, 90) },
+            }, set = function(color) end },
+        }
+    end,
+})
+```
+
+Right-click context menus are owned by the UI instance and are destroyed with it.
 
 ### Label, Divider, Badge
 
@@ -230,5 +261,5 @@ Fonts resolve `BuilderSans` → `Gotham` → `SourceSans`, so it renders on clie
 - `DisplayOrder` is `9999`.
 - Only the library's own `ScreenGui` is created or mutated. No remotes, no `workspace` writes, no other-player access.
 - `M:Destroy()` disconnects every input connection and removes the GUI.
-- The custom cursor is an owned ScreenGui element and restores `MouseIconEnabled` on destroy.
+- The custom cursor is an owned ScreenGui element. It hides the native cursor only while the UI is visible and cursor-enabled; hiding the UI or calling `SetCursorVisible(false)` restores the prior native cursor state.
 - Host-side Potassium capture is the supported visual verification path: `potagent shot <label>`.

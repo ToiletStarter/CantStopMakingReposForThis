@@ -22,6 +22,15 @@ def test_style2_exposes_release_surface():
         "local resizeHandle",
         "local DROPDOWN",
         "priority = opts.priority == true",
+        "function Section:Grid",
+        "function Section:Columns",
+        "compact = opts.compact == true",
+        "separator = opts.separator or \" | \"",
+        "self._syncingFlags",
+        "function UI:_bindContext",
+        "MouseButton2",
+        "_contextPopup",
+        "opts.cursor ~= false",
     ):
         assert token in source
     for token in ("SubTab", "resize", "SetStyle", "priority = true", "custom cursor"):
