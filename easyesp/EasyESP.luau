@@ -45,7 +45,7 @@ local TAU = pi * 2
 local BLACK = c3(0, 0, 0)
 local WHITE = c3(1, 1, 1)
 local FONTS = Drawing.Fonts or {}
-local FONT = FONTS.Plex or FONTS.UI or FONTS.System or 0
+local FONT = FONTS.UI or FONTS.System or FONTS.Plex or FONTS.Monospace or 0
 
 local R15 = {
     {"Head", "UpperTorso"},
@@ -1569,7 +1569,7 @@ function ESP:_canSee(char, points)
     end
     local eye = cam.CFrame.Position
     local mine = lp.Character
-    self.rp.FilterDescendantsInstances = mine and { mine, char } or { char }
+    self.rp.FilterDescendantsInstances = mine and { mine } or {}
 
     local n = 0
     local parts = {}
@@ -2582,27 +2582,43 @@ function ESP:_entityVisible(obj, pos)
     if not cam or typeof(pos) ~= "Vector3" then
         return true
     end
-    local origin = cam.CFrame.Position
-    local direction = pos - origin
-    if direction.Magnitude <= 0.01 then
-        return true
+    local target = nil
+    if typeof(obj) == "Instance" then
+        target = obj:IsA("Model") and obj or obj:FindFirstAncestorOfClass("Model") or obj
+    end
+    local points = { pos }
+    if target and target:IsA("Model") then
+        local ok, box, size = pcall(function()
+            return target:GetBoundingBox()
+        end)
+        if ok and box and size then
+            points[#points + 1] = box.Position + box.UpVector * size.Y * 0.35
+            points[#points + 1] = box.Position - box.UpVector * size.Y * 0.35
+            points[#points + 1] = box.Position + box.RightVector * size.X * 0.3
+            points[#points + 1] = box.Position - box.RightVector * size.X * 0.3
+        end
     end
     local excludes = {}
     local localPlayer = Players.LocalPlayer
     if localPlayer and localPlayer.Character then
         table.insert(excludes, localPlayer.Character)
     end
-    if typeof(obj) == "Instance" then
-        local target = obj:IsA("Model") and obj or obj:FindFirstAncestorOfClass("Model") or obj
-        table.insert(excludes, target)
-    end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = excludes
-    local ok, hit = pcall(function()
-        return workspace:Raycast(origin, direction, params)
-    end)
-    return ok and hit == nil
+    params.IgnoreWater = true
+    for _, point in ipairs(points) do
+        local direction = point - cam.CFrame.Position
+        if direction.Magnitude > 0.01 then
+            local ok, hit = pcall(function()
+                return workspace:Raycast(cam.CFrame.Position, direction, params)
+            end)
+            if ok and (not hit or (target and hit.Instance and (hit.Instance == target or hit.Instance:IsDescendantOf(target)))) then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 function ESP:_ents()

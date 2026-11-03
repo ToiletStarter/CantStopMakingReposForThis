@@ -909,8 +909,8 @@ The table you hand to `addEnt(id, spec)`. `addEnt` normalises five fields in pla
 | `scale` | number | `1` | Multiplies the projected entity size before box/dot/label placement; useful for large POI models. |
 | `dot` | boolean | `nil` (off) | Filled 3px 12-sided dot at the bottom-centre of the box. |
 | `tracer` | boolean | `nil` (off) | 1px line from the bottom-centre of the screen to the bottom-centre of the box. Not configurable per group — it ignores `cfg.tracer`. |
-| `visCheck` | boolean | `false` | Raycast from the camera to the entity before drawing; read-only occlusion check. |
-| `hideOccluded` | boolean | `false` | Suppress the entity when `visCheck` reports an obstruction. |
+| `visCheck` | boolean | `false` | Raycast from the camera to the entity before drawing; the local character is excluded, but the target remains raycastable so a target hit counts as visible. Model entities use multiple bounding-box sample points. |
+| `hideOccluded` | boolean | `false` | Suppress the entity when all visibility sample rays are blocked. |
 | `visTint` | boolean | `false` | Use `visibleColor` or `hiddenColor` for all entity drawing primitives. |
 | `visibleColor` | `Color3` | `spec.col` | Color used when the occlusion check is clear. |
 | `hiddenColor` | `Color3` | red | Color used when the occlusion check is blocked. |
