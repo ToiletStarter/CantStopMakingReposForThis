@@ -906,6 +906,7 @@ The table you hand to `addEnt(id, spec)`. `addEnt` normalises five fields in pla
 | `priority` | number | `cfg.priority.entity` (`2`) | Multiplied by `cfg.priority.scale` into `pool.zbias` for this group. |
 | `max` | number | `cfg.maxRange` (`3000`) | Distance cull, in studs. `0` (or any value `<= 0`) means **unlimited**, matching the player path. The same applies to the `cfg.maxRange` fallback when `max` is unset. |
 | `size` | `Vector3` | `Vector3.new(3, 4, 3)` | Box dimensions, used **only** when `get` returns a `Vector3`. `BasePart` uses `Size`, `Model` uses `GetBoundingBox()`. |
+| `scale` | number | `1` | Multiplies the projected entity size before box/dot/label placement; useful for large POI models. |
 | `dot` | boolean | `nil` (off) | Filled 3px 12-sided dot at the bottom-centre of the box. |
 | `tracer` | boolean | `nil` (off) | 1px line from the bottom-centre of the screen to the bottom-centre of the box. Not configurable per group — it ignores `cfg.tracer`. |
 | `visCheck` | boolean | `false` | Raycast from the camera to the entity before drawing; read-only occlusion check. |

@@ -2640,6 +2640,10 @@ function ESP:_ents()
         if emax > 0 and dist > emax then return end
         local _, _, d, on = self._proj(pos)
         if not on or d <= 0 then return end
+        local scale = tonumber(e.scale) or 1
+        if scale > 0 and scale ~= 1 then
+            size = size * scale
+        end
         local visible = true
         if e.visCheck or e.hideOccluded or e.visTint then
             visible = self:_entityVisible(obj, pos)
